@@ -21,8 +21,14 @@ class Vector(object):
         """
         if type(that) == Vector:
             return (self.x * that.x + self.y * that.y)
-        elif type(float(that)) == float:
+        else:
             return Vector(self.x * that, self.y * that)
+
+    def __div__(self,that):
+        """
+        Only works for numerics
+        """
+        return Vector(self.x / that, self.y / that)
 
     def norm(self):
         length=self.mag()
@@ -48,3 +54,10 @@ class Vector(object):
             return self
         else:
             return self.norm()*mag
+
+    def angle_factor(self,that):
+        """
+        Returns a factor from the angle between the normalised vectors.
+        Factor is 1 for pefect alignment and -1 for anti-alignment, 0 for right angles.
+        """
+        return self.norm() * that.norm()

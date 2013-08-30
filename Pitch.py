@@ -4,16 +4,20 @@ import pdb
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import json
+import itertools
+import random
 
 class Pitch(Entity):
     """
     Manager class holding both teams and the ball. Runs the game.
     """
-    def __init__(self,xsize,ysize):
+    def __init__(self,xsize,ysize,puff_fac=1.,damage_fac=1.):
         self.xsize=float(xsize)
         self.ysize=float(ysize)       
         self.ball=Ball(self)
         self.moves=list()
+        self.puff_fac=puff_fac
+        self.damage_fac=damage_fac
 
     def register_teams(self,home,away):
         self.home=home
@@ -43,8 +47,6 @@ class Pitch(Entity):
             self.player_header[p.uid]=make_player_dict(-1,'null')            
         # Add ball to player_header
         self.player_header[self.ball.uid]=make_player_dict(0,'null')
-        # Run it
-        nsteps=int(game_length/self.dt)
         # Init player states using a ball state broadcast
         self.ball.broadcast('setup')
         self.ball.state=BallLoose(self.ball)
@@ -61,6 +63,8 @@ class Pitch(Entity):
                 self.plots.append(plot_now)
             plot_now, =  plt.plot([],[],'go')
             self.plots.append(plot_now)
+        # Run it
+        nsteps=int(game_length/self.dt) 
         for i in range(nsteps):
             self.tick()
         # Dump to JSON
@@ -84,8 +88,8 @@ class Pitch(Entity):
         # Move all players
         for p in self.players.values():
             p.move()
-        #self.detect_collisions()
-        #self.resolve_collisions()
+        self.detect_collisions()
+        self.resolve_collisions()
         self.ball.move()
         # Store moves
         tick_moves=list()
@@ -103,6 +107,40 @@ class Pitch(Entity):
         if self.display:
             self.frame_display(tick_moves)
             plt.show(block=False)
+
+    def detect_collisions(self):
+        self.collisions=list()
+        for this,that in itertools.combinations(self.players.values(),2):
+            if not (this.standing and that.standing):
+                # Prone players can be run over
+                continue
+            else:
+                if (this.pos - that.pos).mag2() - (this.size + that.size)**2 < 0:
+                    # collision occured
+                    collision = this, that
+                    self.collisions.append(collision)
+
+    def resolve_collisions(self):
+        for c in self.collisions:
+            this, that = c[0]
+            if this.team == that.team:
+                # NOTE: For now, ignore friendly collisions.
+                continue
+            else:
+                # Opposing team players. Game on.
+                # Find elasticity factor, runs from [0,1]
+                elasticity= (this.pos.angle_factor(that.pos)+1)/2.
+                centre_of_mass=(this.pos*this.mass + that.pos*that.mass)/2.
+                # Compute initial momentum, including additional pushes.
+                p_before = this.vel * this.mass + that.vel * that.mass + \
+                    this.strength*random.random()*this.vel.norm() + \
+                    that.strength*random.random()*that.vel.norm()
+
+
+
+
+
+
 
     def frame_data(self):
         nticks=len(self.moves)

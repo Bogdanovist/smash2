@@ -10,7 +10,8 @@ class Player(Entity):
     """
     Player base class. Implements a general all-rounder position.
     """
-    def __init__(self,pitch,xstart,ystart,top_speed=10.,acc=3.,strength=1.,throw_power=30.):
+    def __init__(self,pitch,xstart,ystart,top_speed=10.,acc=3.,strength=1.,throw_power=30.,\
+                 stamina=100.,tough=100.,block_skill=50.,mass=1.):
         Entity.__init__(self)
         self.pitch=pitch
         self.size=1.
@@ -18,13 +19,19 @@ class Player(Entity):
         self.ystart=ystart
         self.top_speed=top_speed
         self.top_acc=acc
-        self.jerk=2.0 # m/s^3
+        self.stamina=stamina
+        self.tough=tough
         self.strength=strength
         self.throw_power=throw_power
+        self.block_skill=block_skill
+        self.mass=mass
         self.steering = Steering(self)
-        # Experimental linear drag locamotion model
+        # Experimental linear drag locomotion model
         self.drag = self.top_acc/self.top_speed
-            
+        # Damage and exhaustion counters
+        self.puff = self.stamina
+        self.health = self.tough 
+
     def setup(self):
         """
         Call to reset to neutral state at starting position.
@@ -34,11 +41,6 @@ class Player(Entity):
         self.acc = Vector(0.,0.)
         self.standing=True
         self.prone=-1.
-        ### Define how to resolve collisions between opposing team players
-        # A player not wanting to block will instead try to evade, for instance
-        # to get around a blocker to make a tackle, or get clear to make a lead
-        # for a pass.
-        self.want_to_block=True
         # Are we trying to catch the ball?
         self.want_to_catch=True
      
@@ -77,22 +79,36 @@ class Player(Entity):
     def opposite_team(self):
         return self.team.opposite_team
 
+    @property
+    def direction(self):
+        return self.team.direction    
+
     def move(self):
         # Don't move if we are prone
+        # NOTE: Ignores mass! (assumes m=1 I guess)
         if not self.standing:
             return
-
-        desired_acc = self.state.execute().truncate(self.top_acc)
-        # Apply jerk limit
-        acc_diff = desired_acc - self.acc
-        if acc_diff.mag() < self.jerk:
-            acc_applied = desired_acc
-        else:
-            acc_applied = acc_diff.norm() * self.jerk
-        # Apply drag
-        drag = self.vel * self.drag
-        self.vel += acc_applied - drag
+        acc = self.current_acc()
+        # Check current puff reduced acc
+        desired_acc = self.state.execute().truncate(acc)
+        self.vel += desired_acc
+        self.vel.truncate(self.top_speed)
         self.pos += self.vel * self.pitch.dt
+        # It costs puff to move
+        self.puff -= desired_acc.mag() * self.pitch.dt * self.pitch.puff_fac
+        print(self.puff)
+
+    def current_acc(self):
+        " Current puff reduced max accel."
+        cut_in=0.5
+        ability_floor=0.5
+        # Reduce ability linearily after cut in, down to floor
+        ratio = self.puff/self.stamina
+        if ratio < cut_in:
+            fac = ratio*(1.-ability_floor)/cut_in + ability_floor
+        else:
+            fac = 1.
+        return fac*self.top_acc
 
     def standup(self):
         """
@@ -131,5 +147,6 @@ class PlayerBallHeld(PlayerState):
         if this.uid == this.pitch.ball.carrier:
             this.steering.seek_end_zone_on(this.attack_end_zone_x)
             this.steering.avoid_defenders_on(this.opposite_team)
+            this.steering.avoid_walls_on(this.pitch)
         else:
-            this.steering.seek_on(this.pitch.players[this.pitch.ball.carrier])
+            this.steering.pursue_on(this.pitch.players[this.pitch.ball.carrier])
