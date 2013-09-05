@@ -119,6 +119,7 @@ class Steering(object):
         ignore_dist2=ignore_dist**2
         this_end_zone_dist = this.dist_to_attack_end_zone
         for p in self.avoid_defenders_team.players.values():
+            if not p.standing: continue
             if this_end_zone_dist < p.dist_to_defend_end_zone : continue
             dist2 = (this.pos - p.pos).mag2()
             if dist2 < nearest_dist2:

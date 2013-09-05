@@ -1,5 +1,6 @@
 import scipy as sp
 import numpy as np
+import math
 
 class Vector(object):
     """
@@ -61,3 +62,21 @@ class Vector(object):
         Factor is 1 for pefect alignment and -1 for anti-alignment, 0 for right angles.
         """
         return self.norm() * that.norm()
+
+    def rotate(self,angle):
+        """
+        Angle in radians.
+        NOTE: This is a dumb way to do this, look up the rotation matrix when you have net access.
+        """
+        r = self.mag()
+        theta = math.atan2(self.y,self.x)
+        phi = theta+angle
+        xnew = r * math.cos(phi)
+        ynew = r * math.sin(phi)
+        return Vector(xnew,ynew)
+
+    def __str__(self):
+        return str(self.x) + ',' + str(self.y)
+
+    def __repr__(self):
+        return str(self.x) + ',' + str(self.y)

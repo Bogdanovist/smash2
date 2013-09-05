@@ -1,5 +1,6 @@
 from Entity import *
 from Ball import * 
+from Utils import *
 import pdb
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -18,6 +19,8 @@ class Pitch(Entity):
         self.moves=list()
         self.puff_fac=puff_fac
         self.damage_fac=damage_fac
+        self.contacts=dict()
+        self.contests=list()
 
     def register_teams(self,home,away):
         self.home=home
@@ -88,17 +91,17 @@ class Pitch(Entity):
         # Move all players
         for p in self.players.values():
             p.move()
+        self.resolve_pushes()     
         self.detect_collisions()
         self.resolve_collisions()
         self.ball.move()
         # Store moves
         tick_moves=list()
         for p in self.players.values():
-            have_ball = p.uid == self.ball.carrier
-            add_move=make_move_dict(p.uid,p.pos.x,p.pos.y,0.,have_ball,int(p.standing))
+            add_move=make_move_dict(p.uid,p.pos.x,p.pos.y,0.,p.has_ball,int(p.standing))
             tick_moves.append(add_move)
-        # Ball position,use pid=0 for ball
-        ball_carried = self.ball.carrier != 0
+        # Ball position
+        ball_carried = self.ball.carrier != None
         add_move=make_move_dict(self.ball.uid,self.ball.pos.x,self.ball.pos.y,0,ball_carried,0)
         tick_moves.append(add_move)
         #
@@ -114,6 +117,9 @@ class Pitch(Entity):
             if not (this.standing and that.standing):
                 # Prone players can be run over
                 continue
+            if this.in_contact and that in self.contacts[this]:
+                # Don't resolve a collision for players already in contact
+                continue
             else:
                 if (this.pos - that.pos).mag2() - (this.size + that.size)**2 < 0:
                     # collision occured
@@ -121,26 +127,164 @@ class Pitch(Entity):
                     self.collisions.append(collision)
 
     def resolve_collisions(self):
+        # NOTE: magic numbers. Where to set them?
+        loser_down_diff = 0.2
+        knock_down_time = 3.0 # in seconds
+        loser_down_damage = 5.
+        loser_up_damage = 2.
+        vdiff_zero=3.
+        max_post_speed = 10.
         for c in self.collisions:
-            this, that = c[0]
+            this, that = c
             if this.team == that.team:
                 # NOTE: For now, ignore friendly collisions.
                 continue
             else:
                 # Opposing team players. Game on.
                 # Find elasticity factor, runs from [0,1]
-                elasticity= (this.pos.angle_factor(that.pos)+1)/2.
-                centre_of_mass=(this.pos*this.mass + that.pos*that.mass)/2.
-                # Compute initial momentum, including additional pushes.
-                p_before = this.vel * this.mass + that.vel * that.mass + \
-                    this.strength*random.random()*this.vel.norm() + \
-                    that.strength*random.random()*that.vel.norm()
+                elasticity= (this.vel.angle_factor(that.vel)+1)/2.
+                this_vel_norm = this.vel.norm()
+                that_vel_norm = that.vel.norm()
+                # Find the direction each player will exert an extra push (directly at opponent)
+                this_force_dir = (this_vel_norm - that_vel_norm).norm()
+                that_force_dir = this_force_dir * -1
+                # Compute initial momentum, including additional pushes along opponents bearing
+                this_push=this_force_dir * this.strength * this.block_skill * random.random()
+                that_push=that_force_dir * that.strength * that.block_skill * random.random()
+                this_pi = this.vel * this.mass
+                that_pi = that.vel * that.mass
+                # Cap total push magnitude by total momentum magnitude
+                p_mag = this_pi.mag() + that_pi.mag()
+                push_mag = this_push.mag() + that_push.mag()
+                if push_mag > p_mag:
+                    this_push *= p_mag/push_mag
+                    that_push *= p_mag/push_mag
+                p_ini_this = this_pi + this_push
+                p_ini_that = that_pi + that_push
+                p_total = p_ini_this + p_ini_that
+                # Whose velocity is most aligned with the total momentum? This guy has 'won' the collision.
+                this_dir_fac = this.vel.angle_factor(p_total)+1
+                that_dir_fac = that.vel.angle_factor(p_total)+1
+                # Largest factor wins
+                if this_dir_fac > that_dir_fac:
+                    loser=that
+                    winner=this
+                    dir_fac_ratio=this_dir_fac/that_dir_fac
+                else:
+                    loser=this
+                    winner=that
+                    dir_fac_ratio=that_dir_fac/this_dir_fac
+                # Determine fate of loser
+                # NOTE: Chance to apply skills here
+                # Damage?
+                # NOTE: Very simple for now, look to uses KE lost as damage done (and use skills...)
+                loser_down=compare_roll(dir_fac_ratio,loser_down_diff)
+                if loser_down == -1:
+                    loser.prone = knock_down_time
+                    loser.health -= loser_down_damage
+                else:
+                    loser.health -= loser_up_damage
+                # Final velocities, use elasticity
+                # Find the impulse for the two extreme versions of the collision
+                vfinal_inelastic = p_total/(this.mass + that.mass)
+                this_inelastic_impulse = vfinal_inelastic * this.mass - p_ini_this
+                that_inelastic_impulse = vfinal_inelastic * that.mass - p_ini_that
+                # Elastic collision is twice impulse of an inelastic one.
+                this_impulse = this_inelastic_impulse * (1.+elasticity)
+                that_impulse = that_inelastic_impulse * (1.+elasticity)
+                # Find final velcotiies and update
+                this.vel = ((p_ini_this + this_impulse)/this.mass).truncate(max_post_speed)
+                that.vel = ((p_ini_that + that_impulse)/that.mass).truncate(max_post_speed)
+                # If final velocities small enough, lock players in a tussle (if both still standing)
+                if loser_down != -1:
+                    v_diff = (this.vel - that.vel).mag()
+                    if v_diff < vdiff_zero:
+                        # NOTE: IS THIS SILLY? STOPPING BOTH COMPLETELY?
+                        loser.vel = Vector(0,0)
+                        winner.vel = Vector(0,0)
+                        self.add_contact(this,that)
+    
+    def resolve_pushes(self):
+        # NOTE: Very simplistic, doesn't take into account angle between players, so will look weird.
+        # Assumes we can have double or triple teams, but not day 2v2, so we need to prevent that elsewhere.
+        # NOTE: Not losing puff for pushing, need to change that!
+        # NOTE: Down chance not a comparison of skill, should be
+        # Magic numbers
+        down_rate = 0.2 # prob per second
+        down_damage = 5.
+        down_time = 3.
+        clist=list()
+        # Generate one push per contact player
+        for p in self.players.values():
+            if not p.in_contact: continue
+            p.my_push = Vector( random.random() * p.strength * p.direction,0)
+            p.all_pushes = [p.my_push]
+            clist.append(p)
+        if len(clist) == 0: return
+        # Apply pushes to opponents
+        for p in clist:
+            # Normalise push by number of opponents
+            norm = len(self.contacts[p])
+            for opp in self.contacts[p]:
+                opp.all_pushes.append(p.my_push / norm)
+        # Sum pushes for each player and apply resultant acceleration
+        for p in clist:
+            acc = np.array(p.all_pushes).sum()
+            temp_vel = acc * self.dt
+            p.pos += temp_vel * self.dt
+            # Roll for down
+            # NOTE: I don't think this is correct Poisson stats!
+            if random.random() < (down_rate*self.dt):
+                p.prone = down_time
+                p.health -= down_damage 
 
+    def add_contact(self,a,b):
+        """
+        Registers that two standing players are now in a contact contest.
+        """
+        if not self.contacts.has_key(a):
+            self.contacts[a]=set()
+        self.contacts[a].add(b)
+ 
+        if not self.contacts.has_key(b):
+            self.contacts[b]=set()
+        self.contacts[b].add(a)
 
+        # Make a contest list
+        #if anew and bnew:
+        #    new_contest = dict()
+        #    if a.team_name == 'home':
+        #        new_contest['home']=a.uid
+        #        new_contest['away']=b.uid
+        #    else:
+        #        new_contest['home']=b.uid
+        #        new_contest['away']=a.uid                
+        #else:
+            
+    def remove_contact(self,a,b):
+        """
+        Removes the two players from the list of current contests.
+        """
+        self.contacts[a].discard(b)
+        if len(self.contacts[a]) == 0:
+            self.contacts.pop(a)
+        
+        self.contacts[b].discard(a)
+        if len(self.contacts[b]) == 0:
+            self.contacts.pop(b)            
 
-
-
-
+    def remove_all_contact(self,p):
+        """
+        Removes the player from all contests.
+        """
+        # Take this player of all opponents lists
+        opps = self.contacts[p]
+        for opp in opps:
+            self.contacts[opp].discard(p)
+            if len(self.contacts[opp]) == 0:
+                self.contacts.pop(opp)
+        # Remove the record for this player
+        self.contacts.pop(p)
 
     def frame_data(self):
         nticks=len(self.moves)
