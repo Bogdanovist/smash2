@@ -24,6 +24,11 @@ class Ball(Entity):
     def move(self):
         self.state.execute()
 
+    def setup(self):
+        self.pos = Vector(self.pitch.xsize/2,self.pitch.ysize/2.)
+        self.carrier = None
+        self.state = BallLoose(self)
+
     def get_message(self,msg,sender_id):
         """
         Only messages content looked at for the moment.

@@ -13,6 +13,7 @@ class Pitch(Entity):
     Manager class holding both teams and the ball. Runs the game.
     """
     def __init__(self,xsize,ysize,puff_fac=1.,damage_fac=1.):
+        Entity.__init__(self)
         self.xsize=float(xsize)
         self.ysize=float(ysize)       
         self.ball=Ball(self)
@@ -23,6 +24,8 @@ class Pitch(Entity):
         self.contests=list()
 
     def register_teams(self,home,away):
+        self.register(home)
+        self.register(away)
         self.home=home
         self.away=away
         home.pitch=self
@@ -70,6 +73,9 @@ class Pitch(Entity):
         nsteps=int(game_length/self.dt) 
         for i in range(nsteps):
             self.tick()
+            if self.check_scoring():
+                self.broadcast('setup')
+                self.ball.setup()
         # Dump to JSON
         jfile = "/home/matt/src/smash/games/test_header.js"
         with open(jfile,'w') as f:
@@ -88,6 +94,9 @@ class Pitch(Entity):
         # Stand prone players up
         for p in self.players.values():
             p.standup()
+        # Team state resolve
+        self.home.state.execute()
+        self.away.state.execute()
         # Move all players
         for p in self.players.values():
             p.move()
@@ -110,6 +119,18 @@ class Pitch(Entity):
         if self.display:
             self.frame_display(tick_moves)
             plt.show(block=False)
+    
+    def check_scoring(self):
+        # Magic numbers
+        end_zone_size=2.
+        if self.ball.carrier == None:
+            return False
+        else:
+            if self.ball.pos.x < end_zone_size or self.ball.pos.x > (self.xsize - end_zone_size):
+                return True
+            else:
+                return False
+
 
     def detect_collisions(self):
         self.collisions=list()
@@ -133,7 +154,7 @@ class Pitch(Entity):
         loser_down_damage = 5.
         loser_up_damage = 2.
         vdiff_zero=3.
-        max_post_speed = 10.
+        max_post_speed = 5.
         for c in self.collisions:
             this, that = c
             if this.team == that.team:

@@ -114,6 +114,10 @@ class Player(Entity):
         else:
             return('away')
 
+    @property
+    def team_in_possession(self):
+        return self.team.in_possession
+
     def move(self):
         # Don't move if we are prone
         # NOTE: Ignores mass! (assumes m=1 I guess)
@@ -147,7 +151,6 @@ class Player(Entity):
         # NOTE: Pushing forwards always, but we don't always want to do that. Need to have hook
         # into state and define in states the push directions ( a parrallel steering behaviours).
         
-
     def current_acc(self):
         " Current puff reduced max accel."
         cut_in=0.5
@@ -202,5 +205,24 @@ class PlayerBallHeld(PlayerState):
             this.steering.seek_end_zone_on(this.attack_end_zone_x)
             this.steering.avoid_defenders_on(this.opposite_team)
             this.steering.avoid_walls_on(this.pitch)
+        elif this.team_in_possession:
+            this.steering.block_on()
+            this.steering.avoid_friends_on(this.team)
         else:
             this.steering.pursue_on(this.pitch.ball.carrier)
+            this.steering.avoid_friends_on(this.team)
+
+
+class DefenderBallHeld(PlayerState):
+    
+    def enter(self):
+        this=self.owner
+        if this.has_ball:
+            this.steering.seek_end_zone_on(this.attack_end_zone_x)
+            this.steering.avoid_defenders_on(this.opposite_team)
+            this.steering.avoid_walls_on(this.pitch)
+        elif this.team_in_possession:
+            this.steering.zone_defend_on()
+        else:
+            this.steering.pursue_on(this.pitch.ball.carrier)
+            this.steering.avoid_friends_on(this.team)
