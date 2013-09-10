@@ -118,6 +118,12 @@ class Player(Entity):
     def team_in_possession(self):
         return self.team.in_possession
 
+    def x_from_defend_end_zone(self,x):
+        if self.team.direction > 0:
+            return x
+        else:
+            return self.pitch.xsize-x  
+
     def move(self):
         # Don't move if we are prone
         # NOTE: Ignores mass! (assumes m=1 I guess)

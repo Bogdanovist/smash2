@@ -76,11 +76,17 @@ class TeamBallHeld(State):
         """
         # Magic numbers
         self.block_assignment_update_period = 1. # in seconds
+        self.zone_defence_update_period = 1.
         this=self.owner
         for p in this.players.values():
             p.get_message('ball_held',this.uid)
+        # We check for block regardless of being in attack or defence. We might want to maintain some blocking
+        # when in defence for some reason.
         self.assign_blocks()
         self.block_update = self.block_assignment_update_period
+        # As with blocking, check for zone defence in attack and defence.
+        self.assign_zone_defence()
+        self.zone_defence_update = self.zone_defence_update_period
 
     def execute(self):
         """
@@ -88,9 +94,15 @@ class TeamBallHeld(State):
         """
         this=self.owner
         self.block_update -= this.pitch.dt
+        self.zone_defence_update -= this.pitch.dt
+
         if self.block_update <= 0.:
             self.assign_blocks()
             self.block_update = self.block_assignment_update_period
+
+        if self.zone_defence_update <= this.pitch.dt:
+            self.assign_zone_defence()
+            self.zone_defence_update = self.zone_defence_update_period
 
     def assign_blocks(self):
         this=self.owner
@@ -125,3 +137,25 @@ class TeamBallHeld(State):
             dlist=list()
             for p in defenders:
                 dlist.append(p._block_d2_temp)
+
+    def assign_zone_defence(self):
+        this=self.owner
+        # NOTE: This implements a single defensive line. We could allow more fancy formations to be specified.
+        # NOTE: Should probably use projections of positions instead of just current position.
+                                     
+        # find all zoners
+        zoners=list()
+        for p in this.players.values():
+            if p.steering._zone_defend_on:
+                zoners.append(p)
+        # Find dy
+        dy = this.pitch.ysize / ( len(zoners) + 1 )
+        # NOTE: This should be done by sorting! This algo is dumb!
+        i=1
+        while len(zoners) > 0:
+            yvals=list()
+            for p in zoners:
+                yvals.append(p.y)
+            pnow = zoners.pop(np.argmin(yvals))
+            # Assign y
+            pnow.zone_defence_y_target = i*dy

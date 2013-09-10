@@ -266,43 +266,26 @@ class Steering(object):
         # Higher values indicate more aggressive closer defending, lower values more defensive and further back.
         def_factor=0.5
         this = self.owner
-        pitch = this.pitch
-        vlist=list()
-        mlist=list()
-        for p in self.zone_defend_team.players.values():
-            if p == this: continue
-            vnow = this.pos - p.pos
-            vlist.append(vnow)
-            mlist.append(vnow.mag())
-        # Check sides
-        if this.y > pitch.ysize/2.:
-            vnow = this.y - Vector(0,pitch.ysize)
-        else:
-            vnow = Vector(0,this.y)*-1
-        vlist.append(vnow)
-        mlist.append(vnow.mag())
-        # Check EZ
-        vnow = Vector(this.dist_to_defend_end_zone,0)
-        vlist.append(vnow)
-        mlist.append(vnow.mag())
-        # Forward limit
+        
         bx=pitch.ball.x
         if this.direction > 0:
-            b_dist = bx * def_factor*2.
-            if this.x > b_dist:
-                vnow = Vector(-this.top_speed,0)
-            else:
-                vnow = Vector(this.x - b_dist,0)
+            xwant = bx * def_factor
         else:
-            b_dist = (pitch.xsize - bx) * def_factor * 2.
-            if this.x < (pitch.xsize - b_dist):
-                vnow = Vector(this.top_speed,0)
-            else:
-                vnow = Vector(b_dist - this.x,0)
-        vlist.append(vnow)
-        mlist.append(vnow.mag())
-        # Normalise and combine
-        maxd = np.max(mlist)
-        mind = np.min(mlist)
+            xwant = pitch.xsize - ( (pitch.xsize - bx) * def_factor )
+        
+        target=Vector(xwant,self.zone_defence_y_target)
+
+        # Set to 'arrive' at target location with zero velocity
+        diff = target-this.pos
+        t_dir = diff.norm()
+        dist = diff.mag()
+        cur_speed = t_dir * this.vel
+        stopping_distance = cur_speed**2/(2.*this.top_acc)
+        if stopping_distance < dist:
+            desired_velocity = t_dir * this.top_speed
+        else:
+            desired_velocity = t_dir * (-this.top_speed)
+        
+        return desired_velocity - this.vel
         
             
