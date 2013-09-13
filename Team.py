@@ -8,13 +8,13 @@ class Team(Entity):
     A container for a team.
     """
     
-    def __init__(self,direction):
+    def __init__(self,message_handler,direction):
         """
         Direction sets the attack direction (via sign).
         """
+        super(Team,self).__init__(message_handler)
         self.players=dict()
         self.direction=direction
-        Entity.__init__(self)
 
     @property
     def attack_end_zone_x(self):
@@ -43,20 +43,20 @@ class Team(Entity):
         # Add to contacts for message passing
         self.register(p)
 
-    def get_message(self,msg,sender_id):
+    def get_message(self,msg):
         """
         Only message content looked at.
         """
-        if msg == "ball_flying":
+        if msg.subject == "ball_flying":
             self.state = TeamBallFlying(self)
-        elif msg == "ball_loose":
+        elif msg.subject == "ball_loose":
             self.state = TeamBallLoose(self)
-        elif msg == "ball_held":
+        elif msg.subject == "ball_held":
             self.state = TeamBallHeld(self)
-        elif msg == "setup":
-            self.broadcast("setup")
+        elif msg.subject == "setup":
+            self.broadcast("setup",body=msg.body,delay=msg.delay)
         else:
-            raise("Unknown message:" + msg + " received")          
+            raise("Unknown message:" + msg.subject + " received")          
 
 class TeamBallLoose(State):
 
@@ -66,7 +66,7 @@ class TeamBallLoose(State):
         """
         this=self.owner
         for p in this.players.values():
-            p.get_message('ball_loose',this.uid)
+            p.broadcast('ball_loose')
         
 class TeamBallHeld(State):
     

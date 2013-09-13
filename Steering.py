@@ -69,12 +69,12 @@ class Steering(object):
     def pursue_off(self):
         self._pursue_on = False
 
-    def block_on(self,w=1.):
+    def block_on(self,block_target,w=1.):
         self._block_on = True
         self.w_block=w
         self.block_carrier=self.player.pitch.ball.carrier
         self.block_team=self.player.team
-        self.block_target=None # will be assinged by the Team
+        self.block_target=block_target
 
     def block_off(self):
         self._block_on = False

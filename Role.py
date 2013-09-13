@@ -1,43 +1,26 @@
+from Player import *
+"""
+Different roles implemented as different class for conveniance. However, they details are actually all
+just softcoded in the self.config dictionary. This allows easier configuration from info stored as set
+by the manager.
+"""
 
-class Role(object):
+class Role(dict):
     """
     Defines the players role (or position). This is the strategic level of the player AI, that
-    determines what States should be used in what circumstances.
+    determines what States should be used in what different ball states.
     """
-    def __init__(self,owner):
-        self.owner=owner
-
-    def get_message(self,msg,sender_id):
-        """
-        Only messages content looked at for the moment.
-        """
-        this=self.owner
-        if msg == "ball_flying":
-            this.state = PlayerBallFlying(self)
-        elif msg == "ball_loose":
-            this.state = PlayerBallLoose(self)
-        elif msg == "ball_held":
-            this.state = PlayerBallHeld(self)
-        elif msg == "setup":
-            this.setup()
-        else:
-            raise("Unknown message:" + msg + " recived")
+    def __init__(self):
+        self.update([ ('ball_loose',PlayerBallLoose),\
+                                 ('ball_flying',PlayerBallFlying),\
+                                 ('ball_carrier',PlayerBallCarrier),\
+                                 ('defence',PlayerDefence),\
+                                 ('attack',PlayerAttack)])
 
 class DefenderRole(Role):
-    
-    def get_message(self,msg,sender_id):
-        """
-        Only messages content looked at for the moment.
-        """
-        this=self.owner
-        if msg == "ball_flying":
-            this.state = PlayerBallFlying(self)
-        elif msg == "ball_loose":
-            this.state = PlayerBallLoose(self)
-        elif msg == "ball_held":
-            this.state = DefenderBallHeld(self)
-        elif msg == "setup":
-            this.setup()
-        else:
-            raise("Unknown message:" + msg + " recived")
-
+    def __init__(self):
+        self.update([ ('ball_loose',DefenderBallLoose),\
+                                 ('ball_flying',DefenderBallFlying),\
+                                 ('ball_carrier',PlayerBallCarrier),\
+                                 ('defence',DefenderDefence),\
+                                 ('attack',DefenderAttack)])

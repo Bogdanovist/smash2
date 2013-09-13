@@ -14,8 +14,8 @@ class Ball(Entity):
     * loose - on ground or bouncing around
     * held - in hands
     """
-    def __init__(self,pitch):
-        Entity.__init__(self)
+    def __init__(self,message_handler,pitch):
+        super(Ball,self).__init__(message_handler)
         self.pitch=pitch
         self.state=BallLoose(self)
         self.pos = Vector(pitch.xsize/2,pitch.ysize/2.)
@@ -29,20 +29,20 @@ class Ball(Entity):
         self.carrier = None
         self.state = BallLoose(self)
 
-    def get_message(self,msg,sender_id):
+    def get_message(self,msg):
         """
         Only messages content looked at for the moment.
         """
-        if msg == "all_flying":
+        if msg.subject == "ball_flying":
             self.state = BallFlying(self)
-        elif msg == "ball_loose":
+        elif msg.subject == "ball_loose":
             self.state = BallLoose(self)
-        elif msg == "ball_held":
+        elif msg.subject == "ball_held":
             self.state = BallHeld(self)
-        elif msg == "setup":
+        elif msg.subject == "setup":
             self.setup()
         else:
-            raise("Unknown message:" + msg + " recived")
+            raise("Unknown message:" + msg.subject + " recived")
     
     def scatter_ball(self,amount):
         """
@@ -58,6 +58,7 @@ class BallLoose(State):
     def enter(self):
         # Magic numbers
         scatter_amount=3.
+        pdb.set_trace()
         self.owner.broadcast('ball_loose')
         self.owner.scatter_ball(scatter_amount)
         self.owner.carrier = None

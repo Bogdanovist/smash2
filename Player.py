@@ -10,9 +10,10 @@ class Player(Entity):
     """
     Player base class. Implements a general all-rounder position.
     """
-    def __init__(self,pitch,xstart,ystart,top_speed=10.,acc=5.,strength=5.,throw_power=30.,\
+    def __init__(self,message_handler,role,pitch,xstart,ystart,top_speed=10.,acc=5.,strength=5.,throw_power=30.,\
                  stamina=100.,tough=100.,block_skill=5.,mass=1.):
-        Entity.__init__(self)
+        super(Player,self).__init__(message_handler)
+        self.role=role
         self.pitch=pitch
         self.size=1.
         self.xstart=xstart
@@ -31,6 +32,7 @@ class Player(Entity):
         # Damage and exhaustion counters
         self.puff = self.stamina
         self.health = self.tough 
+
 
     def setup(self):
         """
@@ -60,20 +62,26 @@ class Player(Entity):
                 self.pitch.remove_all_contact(self)
         self._prone=value
 
-    def get_message(self,msg,sender_id):
+    def get_message(self,msg):
         """
         Only messages content looked at for the moment.
         """
-        if msg == "ball_flying":
-            self.state = PlayerBallFlying(self)
-        elif msg == "ball_loose":
-            self.state = PlayerBallLoose(self)
-        elif msg == "ball_held":
-            self.state = PlayerBallHeld(self)
-        elif msg == "setup":
+        pdb.set_trace()
+        if msg.subject == "ball_flying":
+            self.state = self.role['ball_flying'](self)
+        elif msg.subject == "ball_loose":
+            self.state = self.role['ball_loose'](self)
+        elif msg.subject == "ball_held":
+            if self.has_ball:
+                self.state = self.role['ball_carrier'](self)
+            elif self.team_in_possession:
+                self.state = self.role['attack'](self)
+            else:
+                self.state = self.role['defence'](self)
+        elif msg.subject == "setup":
             self.setup()
         else:
-            raise("Unknown message:" + msg + " recived")
+            raise("Unknown message:" + msg.subject + " recived")
     
     @property
     def attack_end_zone_x(self):
@@ -203,21 +211,39 @@ class PlayerBallLoose(PlayerState):
         this=self.owner
         this.steering.seek_on(this.pitch.ball)
 
-class PlayerBallHeld(PlayerState):
-    
+class PlayerBallCarrier(PlayerState):    
     def enter(self):
         this=self.owner
-        if this.has_ball:
-            this.steering.seek_end_zone_on(this.attack_end_zone_x)
-            this.steering.avoid_defenders_on(this.opposite_team)
-            this.steering.avoid_walls_on(this.pitch)
-        elif this.team_in_possession:
-            this.steering.block_on()
-            this.steering.avoid_friends_on(this.team)
-        else:
-            this.steering.pursue_on(this.pitch.ball.carrier)
-            this.steering.avoid_friends_on(this.team)
+        this.steering.seek_end_zone_on(this.attack_end_zone_x)
+        this.steering.avoid_defenders_on(this.opposite_team)
+        this.steering.avoid_walls_on(this.pitch)
+        
+class PlayerAttack(PlayerState):
+    def enter(self):
+        #this.steering.block_on()
+        this.steering.avoid_friends_on(this.team)
+    
+    def execute(self):
+        # Check if any blocking target has been knocked over
+        if self.steering._block_on:
+            if not self.steering.block_target.standing:
+                self.steering.block_off()
 
+    def check_message(self):
+        if msg['subject'] == 'block_target':
+            block_target = msg['body']
+            if block_target == None:
+                self.steering.block_off()
+            else:
+                self.steering.block_on(block_target)
+
+class PlayerDefence(PlayerState):
+    def enter(self):
+        this.steering.pursue_on(this.pitch.ball.carrier)
+        this.steering.avoid_friends_on(this.team)
+
+class PlayerBallFlying(PlayerState):
+    pass
 
 class DefenderBallHeld(PlayerState):
     
@@ -232,3 +258,15 @@ class DefenderBallHeld(PlayerState):
         else:
             this.steering.pursue_on(this.pitch.ball.carrier)
             this.steering.avoid_friends_on(this.team)
+
+class DefenderBallLoose(PlayerState):
+    pass
+
+class DefenderBallFlying(PlayerState):
+    pass
+
+class DefenderDefence(PlayerState):
+    pass
+
+class DefenderAttack(PlayerState):
+    pass

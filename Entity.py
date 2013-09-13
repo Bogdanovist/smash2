@@ -1,4 +1,5 @@
 from Vector import *
+from MessageHandler import *
 
 class Entity(object):
     """
@@ -6,26 +7,29 @@ class Entity(object):
     
     Sets up communication system.
     """
-    def __init__(self):
+    def __init__(self,message_handler):
         self.uid=id(self)
-        self.comms = dict()
+        self.comms = list()
         self.pos = Vector(0,0)
         self.vel = Vector(0,0)
+        self.message_handler=message_handler
         
     def register(self,obj):
         " Add a reciever for messages."
-        self.comms[obj.uid]=obj
+        self.comms.append(obj)
 
-    def broadcast(self,msg):
+    def broadcast(self,subject,body=None,delay=None):
         " Send a message to all contacts."
-        for c in self.comms.values():
-            c.get_message(msg,self.uid)
+        for c in self.comms:
+            msg=Message(c,self,subject,body,delay)
+            self.message_handler.add(msg)
 
-    def send(self,msg,uid):
+    def send(self,to,subject,body,delay):
         " Send message to specific entity only."
-        self.comms[uid].get_message(msg,self.uid)
+        msg=Message(to,self,subject,body,delay)
+        self.message_handler.add(msg)
 
-    def get_message(self,msg,uid):
+    def get_message(self,msg):
         " Recieve a message."
         pass
 

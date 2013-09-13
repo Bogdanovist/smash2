@@ -12,11 +12,11 @@ class Pitch(Entity):
     """
     Manager class holding both teams and the ball. Runs the game.
     """
-    def __init__(self,xsize,ysize,puff_fac=1.,damage_fac=1.):
-        Entity.__init__(self)
+    def __init__(self,message_handler,xsize,ysize,puff_fac=1.,damage_fac=1.):
+        super(Pitch,self).__init__(message_handler)
         self.xsize=float(xsize)
         self.ysize=float(ysize)       
-        self.ball=Ball(self)
+        self.ball=Ball(message_handler,self)
         self.moves=list()
         self.puff_fac=puff_fac
         self.damage_fac=damage_fac
@@ -38,6 +38,7 @@ class Pitch(Entity):
         for p in away.players.values():
             self.players[p.uid]=p
         # Register teams to the Ball
+        pdb.set_trace()
         self.ball.register(self.home)
         self.ball.register(self.away)    
 
@@ -54,8 +55,10 @@ class Pitch(Entity):
         # Add ball to player_header
         self.player_header[self.ball.uid]=make_player_dict(0,'null')
         # Init player states using a ball state broadcast
-        self.ball.broadcast('setup')
+        self.ball.broadcast('setup',delay=-1)
         self.ball.state=BallLoose(self.ball)
+        pdb.set_trace()
+        self.message_handler.process()
         if display:
             fig1=plt.figure()
             plt.xlim([0,self.xsize])
