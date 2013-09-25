@@ -1,7 +1,8 @@
+import Player
 from Entity import *
 from State import *
-from Player import *
 import pdb
+import numpy as np
 
 class Team(Entity):
     """
@@ -15,6 +16,8 @@ class Team(Entity):
         super(Team,self).__init__(message_handler)
         self.players=dict()
         self.direction=direction
+        self.opposite_team=None
+        self.nearest_defender_updated=-1.
 
     @property
     def attack_end_zone_x(self):
@@ -36,7 +39,23 @@ class Team(Entity):
             return True
         else:
             return False
+    
+    @property
+    def nearest_defender(self):
+        if not self.in_possession:
+            return None
+        else:
+            if self.nearest_defender_updated < self.pitch.game_time:
+                defs = [ p for p in self.opposite_team.players.values() ]
+                d2 = [ (p.pos - self.pitch.ball.carrier).mag2() for p in defs]
+                self._nearest_defender = defs[np.argmin(d2)]
+                self.nearest_defender_updated = self.pitch.game_time
+        return self._nearest_defender
 
+    def setup(self):
+        # NOTE: Team setup actions?
+        pass
+    
     def add_player(self,p):
         self.players[p.uid] = p
         p.team=self
@@ -52,41 +71,28 @@ class Team(Entity):
         elif msg.subject == "ball_loose":
             self.state = TeamBallLoose(self)
         elif msg.subject == "ball_held":
-            self.state = TeamBallHeld(self)
+            if self.in_possession:
+                self.state = TeamAttack(self)
+            else:
+                self.state = TeamDefence(self)
         elif msg.subject == "setup":
-            self.broadcast("setup",body=msg.body,delay=msg.delay)
+            self.setup()
         else:
-            raise("Unknown message:" + msg.subject + " received")          
+            if not self.state.get_message(msg):
+                raise Exception("Unknown message:" + msg.subject + " recived")        
 
 class TeamBallLoose(State):
 
-    def enter(self):
-        """
-        Re-broadcast message to all players.
-        """
-        this=self.owner
-        for p in this.players.values():
-            p.broadcast('ball_loose')
+    pass
         
-class TeamBallHeld(State):
+class TeamAttack(State):
     
     def enter(self):
-        """
-        Re-broadcast message to all players.
-        """
         # Magic numbers
         self.block_assignment_update_period = 1. # in seconds
-        self.zone_defence_update_period = 1.
         this=self.owner
-        for p in this.players.values():
-            p.get_message('ball_held',this.uid)
-        # We check for block regardless of being in attack or defence. We might want to maintain some blocking
-        # when in defence for some reason.
         self.assign_blocks()
-        self.block_update = self.block_assignment_update_period
-        # As with blocking, check for zone defence in attack and defence.
-        self.assign_zone_defence()
-        self.zone_defence_update = self.zone_defence_update_period
+        self.unblocked_opponents=list()
 
     def execute(self):
         """
@@ -94,68 +100,102 @@ class TeamBallHeld(State):
         """
         this=self.owner
         self.block_update -= this.pitch.dt
-        self.zone_defence_update -= this.pitch.dt
 
         if self.block_update <= 0.:
             self.assign_blocks()
-            self.block_update = self.block_assignment_update_period
-
-        if self.zone_defence_update <= this.pitch.dt:
-            self.assign_zone_defence()
-            self.zone_defence_update = self.zone_defence_update_period
+    
+    def get_message(self,msg):
+        if msg.subject == 'block_target_down':
+            self.assign_blocks()
+            return True
+        else:
+            return False
 
     def assign_blocks(self):
+        # NOTE: Should consider defenders (block at the rear) and midfielders if needed as well as blockers.
         this=self.owner
         bc=this.pitch.ball.carrier
-        # Find all blockers
-        blockers=list()
-        # NOTE: Should do this (and the rest!) via list comprehensions (maybe?)
-        for p in this.players.values():
-            if p.steering._block_on: 
-                blockers.append(p)
-        # Find all standing defenders
-        defenders=list()
-        for p in this.opposite_team.players.values():
-            if p.standing:
-                defenders.append(p)
+
+        # Find all standing blockers and standing defenders
+        blockers = [ p for p in this.players.values() if p.role['attack'] == Player.BlockerAttack and not p.has_ball\
+                         and p.standing]
+        defenders = [ p for p in this.opposite_team.players.values() if p.standing ]
         # Find d2 for all defenders-BC
-        dlist=list()
-        for p in defenders:
-            p._block_d2_temp = (p.pos-bc).mag2()
-            dlist.append(p._block_d2_temp)
+        dlist = [ (p.pos-bc.pos).mag2() for p in defenders ]
+
+        self.unblocked_opponents=list()
+
         while len(defenders) > 0 and len(blockers) > 0:
             # Find closest defender
-            closest = defenders.pop(np.argmin(dlist))
+            iclosest = np.argmin(dlist)
+            closest = defenders.pop(iclosest)
+            dnow = dlist.pop(iclosest)
             # Find nearest blocker
-            blist=list()
-            for p in blockers:
-                blist.append( (p.pos-closest.pos).mag2())
+            blist = [ (p.pos-closest.pos).mag2() for p in blockers ]
             blocker = blockers.pop(np.argmin(blist))
             # Assign blocking target
-            blocker.steering.block_target = closest
-            # redo dlist
-            dlist=list()
+            msg = Message(blocker,this,'block_target',(closest,bc))
+            this.message_handler.add(msg)
+            # Check if we think we can safely block this target or not
+            # NOTE: Simple comparison of distance, can do much better
+            if dnow < (blocker.pos - bc.pos).mag2():
+                self.unblocked_opponents.append(closest)
+        self.block_update = self.block_assignment_update_period  
+        
+        # Check for any leftover un-blocked players. These are dangerous
+        if len(defenders) > 0:
             for p in defenders:
-                dlist.append(p._block_d2_temp)
+                self.unblocked_opponents.append(p)
+      
+class TeamDefence(State):
+    
+    def enter(self):
+        # Magic numbers
+        self.defence_assignment_update_period = 1. # in seconds
+        this=self.owner
+        self.assign_defence()
 
-    def assign_zone_defence(self):
+    def get_message(self,msg):
+        if msg.subject == 'defensive_target_down':
+            self.assign_defence()
+            return True
+        else:
+            return False    
+
+    def execute(self):
+        """
+        Periodically re-assign blocking marking targets.
+        """
+        this=self.owner
+        self.defence_update -= this.pitch.dt
+
+        if self.defence_update <= 0.:
+            self.assign_defence()
+    
+    def assign_defence(self):
+        # Magic number
+        push_up_limit=30.
+
         this=self.owner
         # NOTE: This implements a single defensive line. We could allow more fancy formations to be specified.
         # NOTE: Should probably use projections of positions instead of just current position.
-                                     
-        # find all zoners
-        zoners=list()
-        for p in this.players.values():
-            if p.steering._zone_defend_on:
-                zoners.append(p)
-        # Find dy
-        dy = this.pitch.ysize / ( len(zoners) + 1 )
-        # NOTE: This should be done by sorting! This algo is dumb!
-        i=1
-        while len(zoners) > 0:
-            yvals=list()
-            for p in zoners:
-                yvals.append(p.y)
-            pnow = zoners.pop(np.argmin(yvals))
-            # Assign y
-            pnow.zone_defence_y_target = i*dy
+                        
+        defenders = [ p for p in this.players.values() if p.role['defence'] == Player.DefenderDefence and p.standing ]
+        attackers = [ p for p in this.opposite_team.players.values() if p.standing and \
+                          p.dist_to_attack_end_zone < push_up_limit ]
+
+        # Iterate over attackers, assign the closest defender to the most threatening attacker until none of one set left.
+        # NOTE: Assumes distance to end zone the only measure of threat
+        # NOTE: 1/dist to make 'higher number more threatening'
+        threats = [ 1./p.dist_to_attack_end_zone for p in attackers ]
+        
+        while len(defenders) > 0 and len(attackers) > 0:
+            ithreat = (np.argmax(threats))
+            attacker = attackers.pop(ithreat)
+            threat = threats.pop(ithreat)
+            dlist = [ (p.pos - attacker.pos).mag2() for p in defenders ]
+            defender = defenders.pop(np.argmin(dlist))
+            # Assign marking target
+            this.message_handler.add( Message(defender,this,'defensive_target',attacker))
+            
+        self.defence_update = self.defence_assignment_update_period

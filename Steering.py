@@ -1,6 +1,7 @@
 import numpy as np
 import scipy as sp
 from Vector import *
+import Player
 import pdb
 
 class Target(object):
@@ -28,6 +29,8 @@ class Steering(object):
         self._block_on=False
         self._avoid_friends_on=False
         self._zone_defend_on=False
+        self._guard_on=False
+        self._stay_in_range=False
 
     def seek_on(self,target,w=1.):
         self.seek_target=target
@@ -45,19 +48,23 @@ class Steering(object):
     def seek_end_zone_off(self):
         self._seek_end_zone_on=False    
 
-    def avoid_defenders_on(self,team,w=1.):
+    def avoid_defenders_on(self,team,ignore_dist=30,panic_dist=3,w=1.):
         self._avoid_defenders_on = True
         self.w_avoid_defenders=w
         self.avoid_defenders_team=team
+        self.avoid_defenders_ignore_dist=ignore_dist
+        self.avoid_defenders_panic_dist=panic_dist
 
     def avoid_defenders_off(self):
         self._avoid_defenders_on=False
 
-    def avoid_walls_on(self,pitch,w=1.):
+    def avoid_walls_on(self,pitch,ignore_dist=7,panic_dist=2,w=1.):
         self._avoid_walls_on = True
         self.w_avoid_walls=w
         self.avoid_walls_pitch=pitch
-
+        self.avoid_walls_ignore_dist=7
+        self.avoid_walls_panic_dist=2
+        
     def avoid_walls_off(self):
         self._avoid_walls_on = False
 
@@ -69,20 +76,22 @@ class Steering(object):
     def pursue_off(self):
         self._pursue_on = False
 
-    def block_on(self,block_target,w=1.):
+    def block_on(self,block_target,block_protect,w=1.):
         self._block_on = True
         self.w_block=w
         self.block_carrier=self.player.pitch.ball.carrier
         self.block_team=self.player.team
         self.block_target=block_target
+        self.block_protect=block_protect
 
     def block_off(self):
         self._block_on = False
 
-    def avoid_friends_on(self,team,w=1.):
+    def avoid_friends_on(self,team,ignore_dist=5,w=1.):
         self._avoid_friends_on = True
         self.w_avoid_friends=w
         self.avoid_friends_team=team
+        self.avoid_friends_ignore_dist=ignore_dist
 
     def avoid_friends_off(self):
         self._avoid_friends_on=False
@@ -95,6 +104,35 @@ class Steering(object):
     def zone_defend_off(self):
         self._zone_defend_on=False
 
+    def guard_on(self,protect,radius=5,w=1):
+        self._guard_on=True
+        self.w_guard=w
+        self.guard_protect=protect
+        self.guard_radius=radius
+
+    def guard_off(self):
+        self._guard_on=False
+
+    def stay_in_range_on(self,bc,max_range=30,ignore_dist=20,w=1):
+        self._stay_in_range_on=True
+        self.w_stay_in_range=w
+        self.stay_in_range_bc=bc
+        self.stay_in_range_max_range=max_range
+        self.stay_in_range_ignore_dist=ignore_dist
+
+    def stay_in_range_off(self):
+        self._stay_in_range_on=False
+
+    def avoid_end_zone_on(self,ez,ignore_dist=10.,panic_dist=2.,w=1):
+        self._avoid_end_zone_on=True
+        self.w_avoid_end_zone=w
+        self.avoid_end_zone_ez=ez
+        self.avoid_end_zone_ignore_dist=ignore_dist
+        self.avoid_end_zone_panic_dist=panic_dist
+
+    def avoid_end_zone_off(self):
+        self._avoid_end_zone_on=False
+
     def all_off(self):
         self.seek_off()
         self.seek_end_zone_off()
@@ -104,12 +142,17 @@ class Steering(object):
         self.block_off()
         self.avoid_friends_off()
         self.zone_defend_off()
+        self.guard_off()
+        self.stay_in_range_off()
+        self.avoid_end_zone_off()
 
     def resolve(self):
         """
         Return combined result of all steering behaviours.
         """
         acc=Vector(0,0)
+        #if type(self.player.state) == Player.RxAttack:
+        #    pdb.set_trace()
         if self._avoid_defenders_on:
             acc += self.avoid_defenders() * self.w_avoid_defenders
         if self._seek_on:
@@ -126,6 +169,12 @@ class Steering(object):
             acc += self.avoid_friends() * self.w_avoid_friends
         if self._zone_defend_on:
             acc += self.zone_defend() * self.w_zone_defend
+        if self._guard_on:
+            acc += self.guard() * self.w_guard
+        if self._stay_in_range_on:
+            acc += self.stay_in_range() * self.w_stay_in_range
+        if self._avoid_end_zone_on:
+            acc += self.avoid_end_zone() * self.w_avoid_end_zone
         return acc.truncate(self.player.top_acc)
 
     def seek(self):
@@ -148,8 +197,8 @@ class Steering(object):
         Ignores anyone not goalward of us, even if they are close and faster than us.
         """
         this=self.player
-        ignore_dist=30.
-        panic_dist=3.
+        ignore_dist=self.avoid_defenders_ignore_dist
+        panic_dist=self.avoid_defenders_panic_dist
         #
         nearest=None
         nearest_dist2 = 1e10
@@ -184,8 +233,8 @@ class Steering(object):
         this=self.player
         pitch=self.avoid_walls_pitch
         #
-        ignore_dist=7.
-        panic_dist=2.
+        ignore_dist=self.avoid_walls_ignore_dist
+        panic_dist=self.avoid_walls_panic_dist
         #
         if this.y <= ignore_dist:
             if this.y <= panic_dist:
@@ -212,29 +261,27 @@ class Steering(object):
         #        a recievers lead to the side.
         # How far to project? Take half distance to target and turn into travel time using their 
         # top speed. Then project their current speed for that time and seek to that position.
+        
         dist = (this.pos-self.pursue_target.pos).mag()/2.
         travel_time = dist/self.pursue_target.top_speed
-        projected_pos = self.pursue_target.pos + self.pursue_target.vel * travel_time
+        # this is the 'project current velocity' version
+        #projected_pos = self.pursue_target.pos + self.pursue_target.vel * travel_time
+        projected_pos = self.pursue_target.pos + Vector(self.pursue_target.top_speed * this.direction * -1,0) * travel_time
         desired_velocity = (projected_pos -this.pos).norm() * this.top_speed
         return desired_velocity - this.vel
         
     def block(self):
-        # Magic number, should be set in Team?
-        pocket_radius=5.
         this = self.player
 
-        if self.block_target == None:
-            # No target, move to in front of the BC
-            offset = Vector(pocket_radius*this.direction,0)
-            target = self.block_carrier.pos + offset 
-        else:
-            # Want to move towards their projected position, assuming they will go straight at BC.
-            # How far to project? Take half the distance to target player and turn into travel time.
-            # Project their velocity for that time and seek to that position.
-            dist = (this.pos - self.block_target.pos).mag()/2.
-            travel_time = dist/self.block_target.top_speed
-            target = self.block_target.pos + self.block_target.vel * travel_time
-        
+        # Want to move towards their projected position, assuming they will go straight at the 
+        # player we are protecting.
+        # How far to project? Take half the distance to target player and turn into travel time.
+        # Project their velocity for that time and seek to that position.
+        dist = (this.pos - self.block_target.pos).mag()/2.
+        travel_time = dist/self.block_target.top_speed
+        projected_vel = (self.block_protect.pos - self.block_target.pos).norm() * self.block_target.top_speed
+        target = self.block_target.pos + projected_vel * travel_time
+
         desired_velocity = (target - this.pos).norm() * this.top_speed
         return (desired_velocity - this.vel)
 
@@ -244,7 +291,7 @@ class Steering(object):
         Intended as a means of preventing collisions rather than tactically spreading out.
         """
         this=self.player
-        ignore_dist=5.
+        ignore_dist=self.avoid_friends_ignore_dist
         #
         acc=Vector(0,0)
         ignore2=ignore_dist**2
@@ -265,8 +312,8 @@ class Steering(object):
         # What fraction of the distance between enemy BC and EZ to aim to sit at?
         # Higher values indicate more aggressive closer defending, lower values more defensive and further back.
         def_factor=0.5
-        this = self.owner
-        
+        this = self.player
+
         bx=pitch.ball.x
         if this.direction > 0:
             xwant = bx * def_factor
@@ -288,4 +335,43 @@ class Steering(object):
         
         return desired_velocity - this.vel
         
-            
+    def guard(self):
+        this=self.player
+        # NOTE: Can get speed up by using the Team stored nearest defender if we are guarinding the BC
+        defs = [ p for p in this.opposite_team.players.values() ]
+        d2 = [ (p.pos - this.pitch.ball.carrier).mag2() for p in defs]
+        baddie = defs[np.argmin(d2)]
+        # Find norm vector in direction of baddie from player we are protecting
+        direction = (baddie.pos - self.guard_protect.pos).norm()
+        # Project
+        target = self.guard_protect.pos + direction * self.guard_radius
+        desired_velocity = (target - this.pos).norm() * this.top_speed
+        return (desired_velocity - this.vel)
+        
+    def stay_in_range(self):
+        this=self.player
+        dist=(this.pos-self.stay_in_range_bc.pos).mag()
+        if dist <= self.stay_in_range_ignore_dist:
+            return Vector(0,0)
+        else:
+            fac=(dist-self.stay_in_range_ignore_dist)\
+                /(self.stay_in_range_max_range-self.stay_in_range_ignore_dist)
+            desired_velocity = (self.stay_in_range_bc.pos - this.pos)*this.top_speed * fac
+            return (desired_velocity - this.vel)
+
+    def avoid_end_zone(self):
+        this=self.player
+        ignore_dist=self.avoid_end_zone_ignore_dist
+        panic_dist=self.avoid_end_zone_panic_dist
+        target = Vector(self.avoid_end_zone_ez,this.y)
+        dist = (target - this.pos).mag()
+        if dist <= ignore_dist:
+            if dist <= panic_dist:
+                fac = 1
+            else:
+                fac = 1.-(this.y-panic_dist)/(ignore_dist-panic_dist)
+            desired_velocity = (target - this.pos).norm() * this.top_speed * fac
+            ret = desired_velocity - this.vel
+        else:
+            ret=Vector(0,0)
+        return ret

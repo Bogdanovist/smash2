@@ -21,7 +21,7 @@ class Pitch(Entity):
         self.puff_fac=puff_fac
         self.damage_fac=damage_fac
         self.contacts=dict()
-        self.contests=list()
+        self.game_time=0.
 
     def register_teams(self,home,away):
         self.register(home)
@@ -37,14 +37,25 @@ class Pitch(Entity):
             self.players[p.uid]=p
         for p in away.players.values():
             self.players[p.uid]=p
-        # Register teams to the Ball
-        pdb.set_trace()
+        # Register teams and players to the Ball
         self.ball.register(self.home)
-        self.ball.register(self.away)    
+        self.ball.register(self.away)
+        for p in away.players.values():
+            self.ball.register(p)
+        for p in home.players.values():
+            self.ball.register(p)
+
+    def setup(self):
+        self.ball.broadcast('setup',delay=-1)
+        self.ball.broadcast('ball_loose',delay=-1)
+        self.message_handler.clear()        
+        self.ball.setup()
+        self.contacts.clear()
 
     def run_game(self,game_length,dt=0.1,display=True):
         " Run the game "
         self.display=display
+        self.dt_set=dt
         self.dt=dt
         # Setup move storage
         self.player_header=dict()
@@ -55,10 +66,7 @@ class Pitch(Entity):
         # Add ball to player_header
         self.player_header[self.ball.uid]=make_player_dict(0,'null')
         # Init player states using a ball state broadcast
-        self.ball.broadcast('setup',delay=-1)
-        self.ball.state=BallLoose(self.ball)
-        pdb.set_trace()
-        self.message_handler.process()
+        self.setup()
         if display:
             fig1=plt.figure()
             plt.xlim([0,self.xsize])
@@ -73,12 +81,19 @@ class Pitch(Entity):
             plot_now, =  plt.plot([],[],'go')
             self.plots.append(plot_now)
         # Run it
-        nsteps=int(game_length/self.dt) 
-        for i in range(nsteps):
+        self.game_time=0.
+        while self.game_time < game_length:
+            # Add time FIRST, since tick() will get state to end of this interval (not start).
+            if self.ball.state == BallFlying:
+                # Magic numbers
+                max_ball_move=1.
+                self.dt = max_ball_move/self.ball.vel.mag()
+            else:
+                self.dt = self.dt_set
+            self.game_time += self.dt           
             self.tick()
             if self.check_scoring():
-                self.broadcast('setup')
-                self.ball.setup()
+                self.setup()
         # Dump to JSON
         jfile = "/home/matt/src/smash/games/test_header.js"
         with open(jfile,'w') as f:
@@ -89,11 +104,13 @@ class Pitch(Entity):
         if display:
             line_ani = animation.FuncAnimation(fig1,self.frame_display,self.frame_data,interval=20,blit=False,repeat=True)
             plt.show()
-
+            
     def tick(self):
         """
         Iterate one tick.
         """
+        # Process any pending messages
+        self.message_handler.process()
         # Stand prone players up
         for p in self.players.values():
             p.standup()
@@ -274,17 +291,6 @@ class Pitch(Entity):
             self.contacts[b]=set()
         self.contacts[b].add(a)
 
-        # Make a contest list
-        #if anew and bnew:
-        #    new_contest = dict()
-        #    if a.team_name == 'home':
-        #        new_contest['home']=a.uid
-        #        new_contest['away']=b.uid
-        #    else:
-        #        new_contest['home']=b.uid
-        #        new_contest['away']=a.uid                
-        #else:
-            
     def remove_contact(self,a,b):
         """
         Removes the two players from the list of current contests.

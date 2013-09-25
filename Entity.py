@@ -24,7 +24,7 @@ class Entity(object):
             msg=Message(c,self,subject,body,delay)
             self.message_handler.add(msg)
 
-    def send(self,to,subject,body,delay):
+    def send(self,to,subject,body=None,delay=None):
         " Send message to specific entity only."
         msg=Message(to,self,subject,body,delay)
         self.message_handler.add(msg)
@@ -49,7 +49,13 @@ class Entity(object):
     @property
     def x(self):
         return self.pos.x
+    @x.setter
+    def x(self,xnew):
+        self.pos = Vector(xnew,self.y)
 
     @property
     def y(self):
         return self.pos.y
+    @y.setter
+    def y(self,ynew):
+        self.pos = Vector(self.x,ynew)

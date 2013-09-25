@@ -11,16 +11,34 @@ class Role(dict):
     determines what States should be used in what different ball states.
     """
     def __init__(self):
+        # NOTE: Acts as a blocker only in attack. Need to implement utility player.
+
         self.update([ ('ball_loose',PlayerBallLoose),\
                                  ('ball_flying',PlayerBallFlying),\
                                  ('ball_carrier',PlayerBallCarrier),\
                                  ('defence',PlayerDefence),\
-                                 ('attack',PlayerAttack)])
+                                 ('attack',BlockerAttack)])
 
 class DefenderRole(Role):
     def __init__(self):
-        self.update([ ('ball_loose',DefenderBallLoose),\
+        self.update([ ('ball_loose',PlayerBallLoose),\
                                  ('ball_flying',DefenderBallFlying),\
                                  ('ball_carrier',PlayerBallCarrier),\
                                  ('defence',DefenderDefence),\
                                  ('attack',DefenderAttack)])
+
+class BlockerRole(Role):
+    def __init__(self):
+        self.update([ ('ball_loose',PlayerBallLoose),\
+                                 ('ball_flying',PlayerBallFlying),\
+                                 ('ball_carrier',PlayerBallCarrier),\
+                                 ('defence',PlayerDefence),\
+                                 ('attack',BlockerAttack)])
+
+class RxRole(Role):
+    def __init__(self):
+        self.update([ ('ball_loose',PlayerBallLoose),\
+                                 ('ball_flying',RxBallFlying),\
+                                 ('ball_carrier',PlayerBallCarrier),\
+                                 ('defence',PlayerDefence),\
+                                 ('attack',RxAttack)])
