@@ -3,6 +3,7 @@ from Vector import *
 from State import *
 import Utils
 import pdb
+import math
 
 class Ball(Entity):
     """
@@ -24,6 +25,10 @@ class Ball(Entity):
         self.vert_vel = Vector(0,0)
         # Magic Number
         self.g = -10.
+        # For when flying
+        self.target = None
+        self.arrival_time = None
+        self.thrower = None
 
     def move(self):
         self.state.execute()
@@ -37,12 +42,10 @@ class Ball(Entity):
         """
         Only message content looked at for the moment.
         """
-        if msg.subject == "ball_flying":
-            self.state = BallFlying(self)
-        elif msg.subject == "ball_loose":
+        if msg.subject == "ball_loose":
             self.state = BallLoose(self)
-        elif msg.subject == "ball_held":
-            self.state = BallHeld(self)
+        elif msg.subject == "throw_made":
+            self.state = BallFlying(self,msg)
         elif msg.subject == "setup":
             self.setup()
         else:
@@ -68,11 +71,7 @@ class Ball(Entity):
         self.vel = (target-self.pos).norm()*power*math.cos(elv)
         self.vert_vel = power*math.sin(elv)
         self.target=target
-        self.state=BallFlying(self)
-        #dist = power**2 * math.sin(2.*elv)/self.g
-        #dx, dy = utils.components(dist,self.angle)
-        #self.xland = self.x + dx
-        #self.yland = self.y + dy
+        self.arrival_time= self.pitch.game_time + (self.pos - target).mag() / self.vel.mag()
 
     def catch_test(self,player):
         # NOTE: Implement modifier due to nearby opponents?
@@ -82,6 +81,12 @@ class Ball(Entity):
     def max_range_of(self,player):
         " Returns max range this player could pass "
         return -player.throw_power**2 / self.g
+    
+    def find_elv_to_hit_target(self,thrower,target):
+        return 0.5*math.asin( ((target - thrower.pos).mag() * (-self.g))/thrower.throw_power**2)
+
+    def find_time_of_flight(self,thrower,elv):
+        return 2*thrower.throw_power*math.sin(elv)/(-self.g)
 
 class BallLoose(State):
 
@@ -103,10 +108,13 @@ class BallLoose(State):
         for p in this.pitch.players.values():
             dist = (p.pos - this.pos).mag2()
             if dist < p.size**2:
-                this.carrier = p
-                this.state = BallHeld(this)
+                this.state = BallHeld(this,p)
 
 class BallHeld(State):
+
+    def __init__(self,owner,carrier):
+        owner.carrier=carrier
+        super(BallHeld,self).__init__(owner)
 
     def enter(self):
         self.owner.broadcast('ball_held')
@@ -120,8 +128,19 @@ class BallHeld(State):
 
 class BallFlying(State):
     
+    def __init__(self,owner,msg):
+        self.msg = msg
+        super(BallFlying,self).__init__(owner)
+    
     def enter(self):
-        self.owner.broadcast('ball_flying')
+        this = self.owner
+        if (self.msg.sender.pos - self.msg.body).mag() > this.max_range_of(self.msg.sender):
+            elv = math.atan(1.) # 45 degrees...
+        else:
+            elv = this.find_elv_to_hit_target(self.msg.sender,self.msg.body)
+        this.launch(elv,self.msg.sender.throw_power,self.msg.body)
+        this.thrower=self.msg.sender
+        this.broadcast('ball_flying')
         
     def execute(self):
         " Iterate one flight tick "
@@ -143,7 +162,7 @@ class BallFlying(State):
             # Find where ball passes catching height
             dmag = disp.mag()
             slope = (znext-this.z)/dmag
-            start = -1*(this.z-catch_height)/dmag
+            start = this.pos + disp.norm() * ( (catch_height-this.z)/slope )
         else:
             start = None
         
@@ -151,9 +170,17 @@ class BallFlying(State):
         if not start == None:
             # check for catch.
             caught_it=None
-            catchers = [ p for p in this.pitch.players.values() if \
-                             (p.pos - start).mag2() < p.size**2 or \
-                             (p.pos - posnext).mag2() < p.size**2]
+            catchers=list()
+            for p in this.pitch.players.values():
+                try:
+                    if (p.pos - start).mag2() < p.size**2 or (p.pos - posnext).mag2() < p.size**2 \
+                            and not p == this.thrower:
+                        catchers.append(p)
+                except:
+                    pdb.set_trace()
+            #catchers = [ p for p in this.pitch.players.values() if \
+            #                 (p.pos - start).mag2() < p.size**2 or \
+            #                 (p.pos - posnext).mag2() < p.size**2 and not this.thrower]
             if len(catchers) > 1:
                 while len(catchers) > 0:
                     clist = [ (p.pos - start).mag2() for p in catchers ]
@@ -183,13 +210,20 @@ class BallFlying(State):
                 this.y = this.pitch.ysize
                 oob = True
             if oob:
-                this.state = BallLoose(self)
+                this.state = BallLoose(this)
                 # NOTE: Simple wall like behaviour for OOB. What else to do?
             # Check for ball landing
             if this.z <= 0.:
-                this.state = BallLoose(self)
+                this.state = BallLoose(this)
         else:
             # Catch occured, change state as appropriate.
-            this.state = BallHeld(self)
+            this.state = BallHeld(this,caught_it)
             # NOTE: Bit of a hack
             this.pos = caught_it.pos
+
+    def exit(self):
+        this = self.owner
+        this.target = None
+        this.arrival_time = None
+        this.thrower = None
+        super(BallFlying,self).exit()

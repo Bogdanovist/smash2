@@ -1,8 +1,8 @@
 import numpy as np
-import scipy as sp
-from Vector import *
+from Vector import Vector
 import Player
 import pdb
+import Ball
 
 class Target(object):
     """
@@ -31,6 +31,8 @@ class Steering(object):
         self._zone_defend_on=False
         self._guard_on=False
         self._stay_in_range=False
+        self._avoid_end_zone=False
+        self._arrive_at_speed=False
 
     def seek_on(self,target,w=1.):
         self.seek_target=target
@@ -133,6 +135,15 @@ class Steering(object):
     def avoid_end_zone_off(self):
         self._avoid_end_zone_on=False
 
+    def arrive_at_speed_on(self,target,time,w=1):
+        self._arrive_at_speed_on=True
+        self.arrive_at_speed_target=target
+        self.arrive_at_speed_time=time
+        self.w_arrive_at_speed=w
+
+    def arrive_at_speed_off(self):
+        self._arrive_at_speed_on=False
+
     def all_off(self):
         self.seek_off()
         self.seek_end_zone_off()
@@ -145,6 +156,7 @@ class Steering(object):
         self.guard_off()
         self.stay_in_range_off()
         self.avoid_end_zone_off()
+        self.arrive_at_speed_off()
 
     def resolve(self):
         """
@@ -175,6 +187,8 @@ class Steering(object):
             acc += self.stay_in_range() * self.w_stay_in_range
         if self._avoid_end_zone_on:
             acc += self.avoid_end_zone() * self.w_avoid_end_zone
+        if self._arrive_at_speed_on:
+            acc += self.arrive_at_speed() * self.w_arrive_at_speed
         return acc.truncate(self.player.top_acc)
 
     def seek(self):
@@ -182,6 +196,8 @@ class Steering(object):
         Attempts to acc directly at target.
         """
         desired_velocity = (self.seek_target.pos-self.player.pos).norm() * self.player.top_speed
+        #if type(self.player.pitch.ball.state) == Ball.BallLoose:
+        #    print(self.player.pos,self.seek_target.pos,desired_velocity - self.player.vel)
         return (desired_velocity - self.player.vel)
         
     def seek_end_zone(self):
@@ -374,4 +390,14 @@ class Steering(object):
             ret = desired_velocity - this.vel
         else:
             ret=Vector(0,0)
+
         return ret
+
+    def arrive_at_speed(self):
+        this=self.player
+        diff = self.arrive_at_speed_target - this.pos
+        dist = diff.mag()
+        time = self.arrive_at_speed_time - this.pitch.game_time
+        speed = dist/time
+        desired_velocity = diff.norm() * speed
+        return desired_velocity - this.vel

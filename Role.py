@@ -1,4 +1,4 @@
-from Player import *
+import Player
 """
 Different roles implemented as different class for conveniance. However, they details are actually all
 just softcoded in the self.config dictionary. This allows easier configuration from info stored as set
@@ -13,32 +13,32 @@ class Role(dict):
     def __init__(self):
         # NOTE: Acts as a blocker only in attack. Need to implement utility player.
 
-        self.update([ ('ball_loose',PlayerBallLoose),\
-                                 ('ball_flying',PlayerBallFlying),\
-                                 ('ball_carrier',PlayerBallCarrier),\
-                                 ('defence',PlayerDefence),\
-                                 ('attack',BlockerAttack)])
+        self.update([ ('ball_loose',Player.PlayerBallLoose),\
+                                 ('ball_flying',Player.PlayerBallFlying),\
+                                 ('ball_carrier',Player.PlayerBallCarrier),\
+                                 ('defence',Player.PlayerDefence),\
+                                 ('attack',Player.BlockerAttack)])
 
 class DefenderRole(Role):
     def __init__(self):
-        self.update([ ('ball_loose',PlayerBallLoose),\
-                                 ('ball_flying',DefenderBallFlying),\
-                                 ('ball_carrier',PlayerBallCarrier),\
-                                 ('defence',DefenderDefence),\
-                                 ('attack',DefenderAttack)])
+        self.update([ ('ball_loose',Player.PlayerBallLoose),\
+                                 ('ball_flying',Player.PlayerBallFlying),\
+                                 ('ball_carrier',Player.PlayerBallCarrier),\
+                                 ('defence',Player.DefenderDefence),\
+                                 ('attack',Player.DefenderAttack)])
 
 class BlockerRole(Role):
     def __init__(self):
-        self.update([ ('ball_loose',PlayerBallLoose),\
-                                 ('ball_flying',PlayerBallFlying),\
-                                 ('ball_carrier',PlayerBallCarrier),\
-                                 ('defence',PlayerDefence),\
-                                 ('attack',BlockerAttack)])
+        self.update([ ('ball_loose',Player.PlayerBallLoose),\
+                                 ('ball_flying',Player.PlayerBallFlying),\
+                                 ('ball_carrier',Player.PlayerBallCarrier),\
+                                 ('defence',Player.PlayerDefence),\
+                                 ('attack',Player.BlockerAttack)])
 
 class RxRole(Role):
     def __init__(self):
-        self.update([ ('ball_loose',PlayerBallLoose),\
-                                 ('ball_flying',RxBallFlying),\
-                                 ('ball_carrier',PlayerBallCarrier),\
-                                 ('defence',PlayerDefence),\
-                                 ('attack',RxAttack)])
+        self.update([ ('ball_loose',Player.PlayerBallLoose),\
+                                 ('ball_flying',Player.PlayerBallFlying),\
+                                 ('ball_carrier',Player.PlayerBallCarrier),\
+                                 ('defence',Player.PlayerDefence),\
+                                 ('attack',Player.RxAttack)])

@@ -79,8 +79,8 @@ class Team(Entity):
             self.setup()
         else:
             if not self.state.get_message(msg):
-                raise Exception("Unknown message:" + msg.subject + " recived")        
-
+                #raise Exception("Unknown message:" + msg.subject + " recived")        
+                print("Uncaught message " + msg.subject)
 class TeamBallLoose(State):
 
     pass
@@ -92,7 +92,6 @@ class TeamAttack(State):
         self.block_assignment_update_period = 1. # in seconds
         this=self.owner
         self.assign_blocks()
-        self.unblocked_opponents=list()
 
     def execute(self):
         """
@@ -146,7 +145,6 @@ class TeamAttack(State):
         if len(defenders) > 0:
             for p in defenders:
                 self.unblocked_opponents.append(p)
-      
 class TeamDefence(State):
     
     def enter(self):
@@ -199,3 +197,6 @@ class TeamDefence(State):
             this.message_handler.add( Message(defender,this,'defensive_target',attacker))
             
         self.defence_update = self.defence_assignment_update_period
+
+class TeamBallFlying(State):
+    pass

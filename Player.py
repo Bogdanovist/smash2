@@ -1,17 +1,21 @@
-from Entity import *
-from State import *
-from Pitch import *
-from Team import *
-from Vector import *
-from Steering import *
+import Entity
+import State
+import Pitch
+import Team
+from Vector import Vector
+import Steering
 import Threat
 import pdb
+import Utils
+import numpy as np
+import MessageHandler
+import Ball
 
-class Player(Entity):
+class Player(Entity.Entity):
     """
     Player base class. Implements a general all-rounder position.
     """
-    def __init__(self,message_handler,role,pitch,xstart,ystart,top_speed=10.,acc=5.,strength=5.,throw_power=30.,\
+    def __init__(self,message_handler,role,pitch,xstart,ystart,top_speed=10.,acc=10.,strength=5.,throw_power=30.,\
                  stamina=100.,tough=100.,block_skill=5.,catch_skill=70.,mass=1.):
         super(Player,self).__init__(message_handler)
         self.role=role
@@ -26,8 +30,9 @@ class Player(Entity):
         self.strength=strength
         self.throw_power=throw_power
         self.block_skill=block_skill
+        self.catch_skill=catch_skill
         self.mass=mass
-        self.steering = Steering(self)
+        self.steering = Steering.Steering(self)
         # Experimental linear drag locomotion model
         self.drag = self.top_acc/self.top_speed
         # Damage and exhaustion counters
@@ -149,6 +154,9 @@ class Player(Entity):
     def move(self):
         # Don't move if we are prone
         # NOTE: Ignores mass! (assumes m=1 I guess)
+        #if type(self.pitch.ball.state) == Ball.BallLoose:
+        #    print(self,self.state)
+
         if not self.standing:
             # Prone players might still be moving, but they rapidly deccelerate!
             # Magic numbers
@@ -183,6 +191,8 @@ class Player(Entity):
         " Current puff reduced max accel."
         cut_in=0.5
         ability_floor=0.5
+        #NOTE: Turned off for now to allow easier state debugging
+        return self.top_acc
         # Reduce ability linearily after cut in, down to floor
         ratio = self.puff/self.stamina
         if ratio < cut_in:
@@ -204,7 +214,7 @@ class Player(Entity):
     def drop_ball(self):
         self.send(self.pitch.ball,'ball_loose')
         
-class PlayerState(State):
+class PlayerState(State.State):
     """
     Base class for Player states.
     """
@@ -228,28 +238,76 @@ class PlayerBallLoose(PlayerState):
 class PlayerBallCarrier(PlayerState):    
     def enter(self):
         this=self.owner
-        this.steering.seek_end_zone_on(this.attack_end_zone_x)
+        this.steering.seek_end_zone_on(this.attack_end_zone_x,w=100)
         this.steering.avoid_defenders_on(this.opposite_team)
         this.steering.avoid_walls_on(this.pitch)
     
     def execute(self):
+        # Magic numbers
+        rx_project_factor = 0.6 # How much of max acc to use when projecting reciever?
+        min_dist_to_sideline = 5. # How close to sidelines will be target at minimum?
+        min_dist_to_endzone = 5.
         # Check for pass
         # NOTE: Checks all friends, including Blockers?
         this = self.owner
         max_range2 = this.pitch.ball.max_range_of(this)**2
 
-        recs = [ p in this.team.players.values() if p.standing and (p.pos - this.pos).mag2() < max_range2 ]
+        recs = [ p for p in  this.team.players.values() if p.standing and (p.pos - this.pos).mag2() < max_range2 ]
         threats = [ Threat.rx_threat(rx) for rx in recs ]
         imin = np.argmin(threats)
         best_threat = threats[imin]
+        rx = recs[imin]
 
         my_threat = Threat.bc_threat(this)
         
         #NOTE: Doesn't take into account extra risk from pass, will lead to lots of passing.
         if my_threat > best_threat:
             # Make a pass
-            
-        return super(PlayerBallCarrier,self).execute()
+            # Find 'optimal' heading for the rx, weighted average of def positions using
+            # the threat as the weight.
+            rx_threat, scores, defenders = Threat.rx_threat(rx,full=True)
+            heading=Vector(0,0)
+            for d, s in zip(defenders, scores):
+                # Find 'optimal' heading for this defender
+                if rx.y == d.y:
+                    heading_now = Vector(0,1)
+                else:
+                    midpoint = (d.pos + rx.pos)/2.
+                    m=-1/( (rx.y-d.y)/(rx.x-d.x))
+                    b = midpoint.y - m*midpoint.x
+                    # Find where PB meets ez
+                    # Limit target by corners, otherwise target halfway between meeting and corner.
+                    ymeet = m * rx.attack_end_zone_x + b
+                    if ymeet < 0:
+                        ytarget=0
+                    elif ymeet > rx.pitch.ysize:
+                        ytarget = rx.pitch.ysize
+                    else:
+                        if d.y > rx.y:
+                            ytarget = ymeet/2.
+                        else:
+                            ytarget = (ymeet + rx.pitch.ysize)/2.
+                    heading_now = (Vector(rx.attack_end_zone_x,ytarget) - rx.pos).norm()
+                heading += heading_now * s
+            heading=heading.norm()
+            # Now work out how far along heading to project as target.
+            # First find TOF to Rx current location
+            ball = this.pitch.ball
+            tof_to_current = ball.find_time_of_flight(this, ball.find_elv_to_hit_target(this,rx.pos))
+            # Project the Rx by this much time
+            rx_projected_vel = (rx.vel + heading * rx.top_acc * rx_project_factor * tof_to_current).truncate(rx.top_speed)
+            rx_projected_pos = rx.pos + rx_projected_vel * tof_to_current
+            # Sanity check this position
+            rx_projected_pos.y = Utils.bracket\
+                (min_dist_to_sideline,rx_projected_pos.y,this.pitch.ysize-min_dist_to_sideline)
+            rx_projected_pos.x = Utils.bracket\
+                (min_dist_to_endzone,rx_projected_pos.x,this.pitch.xsize-min_dist_to_endzone)            
+            # Make the throw
+            this.message_handler.add(MessageHandler.Message(ball,this,'throw_made',rx_projected_pos))
+            # Need to return a vector for steering
+            return Vector(0,0)
+        else:        
+            return super(PlayerBallCarrier,self).execute()
 
 class PlayerDefence(PlayerState):
     def enter(self):
@@ -258,7 +316,9 @@ class PlayerDefence(PlayerState):
         this.steering.avoid_friends_on(this.team)
 
 class PlayerBallFlying(PlayerState):
-    pass
+    def enter(self):
+        this=self.owner
+        this.steering.arrive_at_speed_on(this.pitch.ball.target,this.pitch.ball.arrival_time)
 
 class DefenderBallLoose(PlayerState):
     pass
@@ -277,7 +337,7 @@ class DefenderDefence(PlayerState):
         this=self.owner
         if this.steering._pursue_on:
             if not this.steering.pursue_target.standing:
-                msg=Message(this.team,this,'defensive_target_down')
+                msg=MessageHandler.Message(this.team,this,'defensive_target_down')
                 this.message_handler.add(msg)
                 # This turns default no target steering back on, then resolves steering
                 self.exit()
@@ -311,7 +371,7 @@ class BlockerAttack(PlayerState):
         this=self.owner
         if this.steering._block_on:
             if not this.steering.block_target.standing:
-                msg=Message(this.team,this,'block_target_down')
+                msg=MessageHandler.Message(this.team,this,'block_target_down')
                 this.message_handler.add(msg)
                 # Exit then re-enter to turn back on no target behaviour
                 self.exit()
