@@ -3,7 +3,7 @@ Utility routines for assessing threats.
 """
 import numpy as np
 from Vector import *
-import pdb
+import pdb as debug
 
 def threat_score(p,d):
     # magic numbers

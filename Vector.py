@@ -79,3 +79,7 @@ class Vector(object):
 
     def __repr__(self):
         return str(self.x) + ',' + str(self.y)
+
+    def angle(self):
+        " Returns the angle of this vector."
+        return math.atan2(self.y,self.x)

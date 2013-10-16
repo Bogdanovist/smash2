@@ -1,10 +1,12 @@
 import Player
-from Entity import *
-from State import *
-import pdb
+import Entity
+import State
+import MoveState
+import MessageHandler
+import pdb as debug
 import numpy as np
 
-class Team(Entity):
+class Team(Entity.Entity):
     """
     A container for a team.
     """
@@ -81,15 +83,16 @@ class Team(Entity):
             if not self.state.get_message(msg):
                 #raise Exception("Unknown message:" + msg.subject + " recived")        
                 print("Uncaught message " + msg.subject)
-class TeamBallLoose(State):
+
+class TeamBallLoose(State.State):
 
     pass
         
-class TeamAttack(State):
+class TeamAttack(State.State):
     
     def enter(self):
         # Magic numbers
-        self.block_assignment_update_period = 1. # in seconds
+        self.block_assignment_update_period = 0. # in seconds
         this=self.owner
         self.assign_blocks()
 
@@ -116,7 +119,7 @@ class TeamAttack(State):
         bc=this.pitch.ball.carrier
 
         # Find all standing blockers and standing defenders
-        blockers = [ p for p in this.players.values() if p.role['attack'] == Player.BlockerAttack and not p.has_ball\
+        blockers = [ p for p in this.players.values() if type(p.move_state) == MoveState.Block and not p.has_ball\
                          and p.standing]
         defenders = [ p for p in this.opposite_team.players.values() if p.standing ]
         # Find d2 for all defenders-BC
@@ -133,7 +136,7 @@ class TeamAttack(State):
             blist = [ (p.pos-closest.pos).mag2() for p in blockers ]
             blocker = blockers.pop(np.argmin(blist))
             # Assign blocking target
-            msg = Message(blocker,this,'block_target',(closest,bc))
+            msg = MessageHandler.Message(blocker,this,'block_target',(closest,bc))
             this.message_handler.add(msg)
             # Check if we think we can safely block this target or not
             # NOTE: Simple comparison of distance, can do much better
@@ -145,11 +148,12 @@ class TeamAttack(State):
         if len(defenders) > 0:
             for p in defenders:
                 self.unblocked_opponents.append(p)
-class TeamDefence(State):
+
+class TeamDefence(State.State):
     
     def enter(self):
         # Magic numbers
-        self.defence_assignment_update_period = 1. # in seconds
+        self.defence_assignment_update_period = 0. # in seconds
         this=self.owner
         self.assign_defence()
 
@@ -178,7 +182,7 @@ class TeamDefence(State):
         # NOTE: This implements a single defensive line. We could allow more fancy formations to be specified.
         # NOTE: Should probably use projections of positions instead of just current position.
                         
-        defenders = [ p for p in this.players.values() if p.role['defence'] == Player.DefenderDefence and p.standing ]
+        defenders = [ p for p in this.players.values() if type(p.move_state) == MoveState.Defend and p.standing ]
         attackers = [ p for p in this.opposite_team.players.values() if p.standing and \
                           p.dist_to_attack_end_zone < push_up_limit ]
 
@@ -194,9 +198,9 @@ class TeamDefence(State):
             dlist = [ (p.pos - attacker.pos).mag2() for p in defenders ]
             defender = defenders.pop(np.argmin(dlist))
             # Assign marking target
-            this.message_handler.add( Message(defender,this,'defensive_target',attacker))
+            this.message_handler.add( MessageHandler.Message(defender,this,'defensive_target',attacker))
             
         self.defence_update = self.defence_assignment_update_period
 
-class TeamBallFlying(State):
+class TeamBallFlying(State.State):
     pass

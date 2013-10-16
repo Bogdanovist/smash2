@@ -1,15 +1,18 @@
 import Entity
 import State
+import MoveState
 import Pitch
 import Team
 from Vector import Vector
 import Steering
 import Threat
-import pdb
+import pdb as debug
 import Utils
 import numpy as np
 import MessageHandler
 import Ball
+import Role
+import math
 
 class Player(Entity.Entity):
     """
@@ -18,6 +21,7 @@ class Player(Entity.Entity):
     def __init__(self,message_handler,role,pitch,xstart,ystart,top_speed=10.,acc=10.,strength=5.,throw_power=30.,\
                  stamina=100.,tough=100.,block_skill=5.,catch_skill=70.,mass=1.):
         super(Player,self).__init__(message_handler)
+        self.team=None
         self.role=role
         self.pitch=pitch
         self.size=1.
@@ -32,13 +36,13 @@ class Player(Entity.Entity):
         self.block_skill=block_skill
         self.catch_skill=catch_skill
         self.mass=mass
-        self.steering = Steering.Steering(self)
         # Experimental linear drag locomotion model
         self.drag = self.top_acc/self.top_speed
         # Damage and exhaustion counters
         self.puff = self.stamina
         self._health = self.tough 
         self._state = None
+        self._move_state = None
 
     def setup(self):
         """
@@ -52,6 +56,21 @@ class Player(Entity.Entity):
         # Are we trying to catch the ball?
         self.want_to_catch=True
         self._state=None
+        self._move_state=None
+
+    @property
+    def move_state(self):
+        return self._move_state
+    
+    @move_state.setter
+    def move_state(self,new_state):
+        try:
+            self._move_state.exit()
+        except:
+            pass
+        finally:
+            self._move_state=new_state        
+            self._move_state.enter()
 
     @property
     def prone(self):
@@ -99,8 +118,8 @@ class Player(Entity.Entity):
             self.setup()
         else:
             if not self.state.get_message(msg):
-                print("Uncaught message " + msg.subject)    
-                #raise Exception("Unknown message:" + msg.subject + " recived")
+                if not self.move_state.get_message(msg):
+                    print("Uncaught message " + msg.subject)    
     
     @property
     def attack_end_zone_x(self):
@@ -152,11 +171,9 @@ class Player(Entity.Entity):
             return self.pitch.xsize-x  
 
     def move(self):
-        # Don't move if we are prone
-        # NOTE: Ignores mass! (assumes m=1 I guess)
-        #if type(self.pitch.ball.state) == Ball.BallLoose:
-        #    print(self,self.state)
 
+        # NOTE: Ignores mass! (assumes m=1 I guess)
+        # Don't move if we are prone
         if not self.standing:
             # Prone players might still be moving, but they rapidly deccelerate!
             # Magic numbers
@@ -175,7 +192,12 @@ class Player(Entity.Entity):
             return
         acc = self.current_acc()
         # Check current puff reduced acc
-        desired_acc = self.state.execute().truncate(acc)
+        # NOTE HACK: Current states consider current vel in providing desired acc
+        # We undo this so that they return the actual desired velocity
+        state_vel = self.move_state.execute()
+        desired_vel = state_vel + self.vel 
+        drag_limited_acc = acc * (1. - desired_vel.angle_factor(self.vel) * self.vel.mag() / self.top_speed)
+        desired_acc = (desired_vel - self.vel).truncate(drag_limited_acc)
         self.vel += desired_acc * self.pitch.dt
         self.vel = self.vel.truncate(self.top_speed)
         self.pos += self.vel * self.pitch.dt
@@ -218,30 +240,23 @@ class PlayerState(State.State):
     """
     Base class for Player states.
     """
-    def execute(self):
-        " Just resolve steering. "
-        return self.owner.steering.resolve()   
-
-    def exit(self):
-        " Turn off all steering. "
-        self.owner.steering.all_off()
+    pass
 
 class PlayerBallLoose(PlayerState):
     
     def enter(self):
         """
-        Apply steering behaviours.
+        NOTE: Need to look at more intelligent options than everyone going for the ball.
         """
         this=self.owner
-        this.steering.seek_on(this.pitch.ball)
+        this.move_state = MoveState.GetLooseBall(this)
 
-class PlayerBallCarrier(PlayerState):    
+class PlayerBallCarrier(PlayerState):
     def enter(self):
         this=self.owner
-        this.steering.seek_end_zone_on(this.attack_end_zone_x,w=100)
-        this.steering.avoid_defenders_on(this.opposite_team)
-        this.steering.avoid_walls_on(this.pitch)
-    
+        #this.move_state = MoveState.RunFreeToGoal(this)
+        this.move_state = MoveState.RunUsingBlocks(this)
+
     def execute(self):
         # Magic numbers
         rx_project_factor = 0.6 # How much of max acc to use when projecting reciever?
@@ -304,108 +319,31 @@ class PlayerBallCarrier(PlayerState):
                 (min_dist_to_endzone,rx_projected_pos.x,this.pitch.xsize-min_dist_to_endzone)            
             # Make the throw
             this.message_handler.add(MessageHandler.Message(ball,this,'throw_made',rx_projected_pos))
-            # Need to return a vector for steering
-            return Vector(0,0)
-        else:        
-            return super(PlayerBallCarrier,self).execute()
 
 class PlayerDefence(PlayerState):
     def enter(self):
         this=self.owner
-        this.steering.pursue_on(this.pitch.ball.carrier)
-        this.steering.avoid_friends_on(this.team)
+        this.move_state = MoveState.TackleBallCarrierDirect(this)
 
 class PlayerBallFlying(PlayerState):
     def enter(self):
         this=self.owner
-        this.steering.arrive_at_speed_on(this.pitch.ball.target,this.pitch.ball.arrival_time)
-
-class DefenderBallLoose(PlayerState):
-    pass
-
-class DefenderBallFlying(PlayerState):
-    pass
+        this.move_state = MoveState.CatchPass(this)
 
 class DefenderDefence(PlayerState):
-
     def enter(self):
         this=self.owner
-        #this.steering.zone_defend_on()
-
-    def execute(self):
-        # Check if defensive target has been knocked over
-        this=self.owner
-        if this.steering._pursue_on:
-            if not this.steering.pursue_target.standing:
-                msg=MessageHandler.Message(this.team,this,'defensive_target_down')
-                this.message_handler.add(msg)
-                # This turns default no target steering back on, then resolves steering
-                self.exit()
-                self.enter()
-        return super(DefenderDefence,self).execute()
-    
-    def get_message(self,msg):
-        this=self.owner
-        if msg.subject == 'defensive_target':
-            target = msg.body
-            this.steering.all_off()
-            this.steering.pursue_on(target)
-            return True
-        else:
-            return False
-
-class DefenderAttack(PlayerState):
-    def enter(self):
-        this=self.owner
-        this.steering.pursue_on(this.pitch.ball.carrier)
-        this.steering.avoid_friends_on(this.team)
+        this.move_state=MoveState.Defend(this)
 
 class BlockerAttack(PlayerState):
     def enter(self):
         this=self.owner
-        this.steering.guard_on(this.pitch.ball.carrier)
-        this.steering.avoid_friends_on(this.team)
-
-    def execute(self):
-        # Check if any blocking target has been knocked over
-        this=self.owner
-        if this.steering._block_on:
-            if not this.steering.block_target.standing:
-                msg=MessageHandler.Message(this.team,this,'block_target_down')
-                this.message_handler.add(msg)
-                # Exit then re-enter to turn back on no target behaviour
-                self.exit()
-                self.enter()
-        # call super method to resolve steering
-        return super(BlockerAttack,self).execute()
-
-    def get_message(self,msg):
-        this=self.owner
-        if msg.subject == 'block_target':
-            block_target, block_protect = msg.body
-            this.steering.block_on(block_target,block_protect)
-            this.steering.guard_off()
-            return True
-        else:
-            return False
-
-class BlockerDefence(PlayerState):
-    pass
-
-class RxBallFlying(PlayerState):
-    pass
+        this.move_state=MoveState.Block(this)
 
 class RxAttack(PlayerState):
 
     def enter(self):
         # Magic numbers below
         this=self.owner
-        this.steering.seek_end_zone_on(this.attack_end_zone_x)
-        this.steering.avoid_defenders_on(this.opposite_team)
-        this.steering.avoid_walls_on(this.pitch)
-        this.steering.avoid_friends_on(this.team,ignore_dist=10)
-        bc_range = this.pitch.ball.max_range_of(this.pitch.ball.carrier)
-        this.steering.stay_in_range_on(this.pitch.ball.carrier,\
-                                           max_range=bc_range*0.8,ignore_dist=bc_range*0.4)
-        this.steering.avoid_end_zone_on(this.attack_end_zone_x)
+        this.move_state=MoveState.FindSpace(this)
 

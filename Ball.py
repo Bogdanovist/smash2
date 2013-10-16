@@ -2,7 +2,7 @@ from Entity import *
 from Vector import *
 from State import *
 import Utils
-import pdb
+import pdb as debug
 import math
 
 class Ball(Entity):
@@ -104,7 +104,8 @@ class BallLoose(State):
         this=self.owner
         # NOTE: Players could be over-lapping and close to ball, making who ends up with it random(ish).
         # BUT, if collision between players have been resolved first, maybe this is okay?
-        
+        # NOTE: Add check of handling skill (or somesuch) to possibly fumble pickup?
+
         for p in this.pitch.players.values():
             dist = (p.pos - this.pos).mag2()
             if dist < p.size**2:
@@ -141,6 +142,7 @@ class BallFlying(State):
         this.launch(elv,self.msg.sender.throw_power,self.msg.body)
         this.thrower=self.msg.sender
         this.broadcast('ball_flying')
+        this.carrier=None
         
     def execute(self):
         " Iterate one flight tick "
@@ -166,33 +168,34 @@ class BallFlying(State):
         else:
             start = None
         
-        caught_it=None
+        caught_it = False
         if not start == None:
+            caught_it, catcher = self.check_catch(start,posnext)
             # check for catch.
-            caught_it=None
-            catchers=list()
-            for p in this.pitch.players.values():
-                try:
-                    if (p.pos - start).mag2() < p.size**2 or (p.pos - posnext).mag2() < p.size**2 \
-                            and not p == this.thrower:
-                        catchers.append(p)
-                except:
-                    pdb.set_trace()
+            #caught_it=None
+            #catchers=list()
+            #for p in this.pitch.players.values():
+            #    try:
+            #        if (p.pos - start).mag2() < p.size**2 or (p.pos - posnext).mag2() < p.size**2 \
+            #                and not p == this.thrower:
+            #            catchers.append(p)
+            #    except:
+            #        pdb.set_trace()
             #catchers = [ p for p in this.pitch.players.values() if \
             #                 (p.pos - start).mag2() < p.size**2 or \
             #                 (p.pos - posnext).mag2() < p.size**2 and not this.thrower]
-            if len(catchers) > 1:
-                while len(catchers) > 0:
-                    clist = [ (p.pos - start).mag2() for p in catchers ]
-                    catcher = catchers.pop(np.argmin(clist))
-                    if this.catch_test(catcher):
-                        caught_it=catcher
-                        catchers=list()   
-            elif len(catchers) == 1:
-                if this.catch_test(catchers[0]):
-                    caught_it=catchers[0]
+            #if len(catchers) > 1:
+            #    while len(catchers) > 0:
+            #        clist = [ (p.pos - start).mag2() for p in catchers ]
+            #        catcher = catchers.pop(np.argmin(clist))
+            #        if this.catch_test(catcher):
+            #            caught_it=catcher
+            #            catchers=list()   
+            #elif len(catchers) == 1:
+            #    if this.catch_test(catchers[0]):
+            #        caught_it=catchers[0]
         
-        if caught_it == None:
+        if caught_it == False:
             this.pos = posnext
             this.z = znext
             # Check for out of bounds
@@ -217,9 +220,9 @@ class BallFlying(State):
                 this.state = BallLoose(this)
         else:
             # Catch occured, change state as appropriate.
-            this.state = BallHeld(this,caught_it)
+            this.state = BallHeld(this,catcher)
             # NOTE: Bit of a hack
-            this.pos = caught_it.pos
+            this.pos = catcher.pos
 
     def exit(self):
         this = self.owner
@@ -227,3 +230,40 @@ class BallFlying(State):
         this.arrival_time = None
         this.thrower = None
         super(BallFlying,self).exit()
+
+    def check_catch(self,start_pos,end_pos):
+        """
+        Check if anyone has caught the ball.
+
+        Params
+        ------
+        start_pos, end_pos: end points along line of when the ball is at a catchable distance.
+        """
+        this=self.owner
+        # NOTE: Add support for contested catching?
+        catchers=list()
+        dlist=list()
+        # Tranform into ball flight co-ords
+        # Transformed co-ords have origin at start pos with y-axis aligned along ball flight path.
+        # Collision detection is easy in this transformed set of co-ordds (assume ball has zero size).
+        diff = end_pos - start_pos
+        angle = diff.angle()
+        xflight = diff.mag()
+        for p in this.pitch.players.values():
+            if not p == this.thrower:
+                ptrans = (p.pos - start_pos).rotate(-angle)
+                if abs(ptrans.y) <= p.size and ptrans.x > p.x-p.size and ptrans.x < p.x+p.size:
+                    print(start_pos,end_pos,p.pos,ptrans)
+                    debug.set_trace()
+                    catchers.append(p)
+                    dlist.append(ptrans.x)
+        if len(catchers) > 0:
+            debug.set_trace()
+            while len(catchers) > 0:
+                imin = np.argmin(dlist)
+                catcher = catchers.pop(imin)
+                if this.catch_test(catcher):
+                    return (True,catcher)
+                else:
+                    dlist.pop(imin)
+        return (False,0)

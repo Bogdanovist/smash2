@@ -3,7 +3,7 @@ import Player
 import Team 
 import MessageHandler
 import Role
-import pdb
+import pdb as debug
 
 xsize=100.
 ysize=50.

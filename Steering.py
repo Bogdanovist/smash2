@@ -1,7 +1,7 @@
 import numpy as np
 from Vector import Vector
 import Player
-import pdb
+import pdb as debug
 import Ball
 
 class Target(object):
@@ -30,9 +30,9 @@ class Steering(object):
         self._avoid_friends_on=False
         self._zone_defend_on=False
         self._guard_on=False
-        self._stay_in_range=False
-        self._avoid_end_zone=False
-        self._arrive_at_speed=False
+        self._stay_in_range_on=False
+        self._avoid_end_zone_on=False
+        self._arrive_at_speed_on=False
 
     def seek_on(self,target,w=1.):
         self.seek_target=target
@@ -196,10 +196,11 @@ class Steering(object):
         Attempts to acc directly at target.
         """
         desired_velocity = (self.seek_target.pos-self.player.pos).norm() * self.player.top_speed
-        #if type(self.player.pitch.ball.state) == Ball.BallLoose:
-        #    print(self.player.pos,self.seek_target.pos,desired_velocity - self.player.vel)
+        #this=self.player
+        #projected_pos = this.pos + this.vel * this.pitch.dt 
+        #desired_velocity = (self.seek_target.pos - projected_pos).norm() * this.top_speed
         return (desired_velocity - self.player.vel)
-        
+
     def seek_end_zone(self):
         """
         Attempts to acc directly at an end zone denoted by its x value (no y value needed).

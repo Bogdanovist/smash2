@@ -1,4 +1,4 @@
-import pdb
+import pdb as debug
 
 class MessageHandler(set):
     debug=False

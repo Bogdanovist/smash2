@@ -1,12 +1,13 @@
 from Entity import *
 from Ball import * 
 from Utils import *
-import pdb
+import pdb as debug
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import json
 import itertools
 import random
+import Helper
 
 class Pitch(Entity):
     """
@@ -22,6 +23,9 @@ class Pitch(Entity):
         self.damage_fac=damage_fac
         self.contacts=dict()
         self.game_time=0.
+        # Add Helpers
+        self.helpers=dict()
+        self.helpers['AttackerDefenderPBeqs']=Helper.AttackerDefenderPBeqs()
 
     def register_teams(self,home,away):
         self.register(home)
@@ -55,7 +59,6 @@ class Pitch(Entity):
     def run_game(self,game_length,dt=0.1,display=True):
         " Run the game "
         self.display=display
-        self.dt_set=dt
         self.dt=dt
         # Setup move storage
         self.player_header=dict()
@@ -84,12 +87,6 @@ class Pitch(Entity):
         self.game_time=0.
         while self.game_time < game_length:
             # Add time FIRST, since tick() will get state to end of this interval (not start).
-            if self.ball.state == BallFlying:
-                # Magic numbers
-                max_ball_move=1.
-                self.dt = max_ball_move/self.ball.vel.mag()
-            else:
-                self.dt = self.dt_set
             self.game_time += self.dt           
             self.tick()
             if self.check_scoring():
@@ -119,6 +116,7 @@ class Pitch(Entity):
         self.away.state.execute()
         # Move all players
         for p in self.players.values():
+            p.state.execute()
             p.move()
         self.resolve_pushes()     
         self.detect_collisions()

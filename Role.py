@@ -25,7 +25,7 @@ class DefenderRole(Role):
                                  ('ball_flying',Player.PlayerBallFlying),\
                                  ('ball_carrier',Player.PlayerBallCarrier),\
                                  ('defence',Player.DefenderDefence),\
-                                 ('attack',Player.DefenderAttack)])
+                                 ('attack',Player.BlockerAttack)])
 
 class BlockerRole(Role):
     def __init__(self):
